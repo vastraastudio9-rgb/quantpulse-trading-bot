@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-background: oklch(0.16 0.008 240);
+  --color-foreground: oklch(0.93 0.005 240);
+  --color-card: oklch(0.2 0.008 240);
+  --color-card-foreground: oklch(0.93 0.005 240);
+  --color-popover: oklch(0.2 0.008 240);
+  --color-popover-foreground: oklch(0.93 0.005 240);
+  --color-primary: oklch(0.76 0.16 162);
+  --color-primary-foreground: oklch(0.16 0.008 240);
+  --color-secondary: oklch(0.26 0.008 240);
+  --color-secondary-foreground: oklch(0.93 0.005 240);
+  --color-muted: oklch(0.24 0.006 240);
+  --color-muted-foreground: oklch(0.66 0.012 240);
+  --color-accent: oklch(0.26 0.008 240);
+  --color-accent-foreground: oklch(0.93 0.005 240);
+  --color-destructive: oklch(0.68 0.2 25);
+  --color-border: oklch(0.3 0.01 240);
+  --color-input: oklch(0.26 0.008 240);
+  --color-ring: oklch(0.76 0.16 162);
+  --color-sidebar: oklch(0.145 0.008 240);
+  --color-sidebar-foreground: oklch(0.93 0.005 240);
+  --color-sidebar-accent: oklch(0.22 0.01 240);
+  --color-sidebar-border: oklch(0.26 0.01 240);
+
+  --color-bull: oklch(0.78 0.16 162);
+  --color-bear: oklch(0.7 0.2 25);
+  --color-warn: oklch(0.8 0.12 75);
+  --color-bull-bg: oklch(0.78 0.16 162 / 14%);
+  --color-bear-bg: oklch(0.7 0.2 25 / 14%);
+  --color-warn-bg: oklch(0.8 0.12 75 / 14%);
+
+  --color-chart-1: oklch(0.78 0.16 162);
+  --color-chart-2: oklch(0.7 0.2 25);
+  --color-chart-3: oklch(0.8 0.12 75);
+  --color-chart-4: oklch(0.7 0.1 230);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius: 10px;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    min-height: 100%;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(0.35 0.01 240);
+    border-radius: 4px;
+  }
+}
+
+@layer utilities {
+  .text-micro {
+    font-size: 0.625rem;
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+  }
+  .text-2xs {
+    font-size: 0.6875rem;
+    line-height: 1.45;
+  }
+  .glow-bull {
+    box-shadow: 0 0 0 1px oklch(0.78 0.16 162 / 28%), 0 0 12px oklch(0.78 0.16 162 / 14%);
+  }
+  .glow-bear {
+    box-shadow: 0 0 0 1px oklch(0.7 0.2 25 / 28%), 0 0 12px oklch(0.7 0.2 25 / 14%);
+  }
+  .glow-warn {
+    box-shadow: 0 0 0 1px oklch(0.8 0.12 75 / 28%), 0 0 12px oklch(0.8 0.12 75 / 14%);
+  }
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.8); }
+  }
+  .pulse-dot {
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
