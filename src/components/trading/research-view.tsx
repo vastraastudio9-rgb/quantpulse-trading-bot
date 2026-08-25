@@ -1,0 +1,152 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Star, GitFork, ExternalLink, BookOpen, Lightbulb, Layers } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { tradingApi, type ResearchRepo } from "@/lib/trading-api";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+
+export function ResearchView() {
+  const [repos, setRepos] = useState<ResearchRepo[]>([]);
+  const [stack, setStack] = useState<Record<string, string>>({});
+  const [insights, setInsights] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await tradingApi.getResearch();
+        setRepos(r.repos);
+        setStack(r.recommended_stack);
+        setInsights(r.key_insights);
+        setLoading(false);
+      } catch (e: any) {
+        toast({ title: "Failed to load research", description: e.message, variant: "destructive" });
+        setLoading(false);
+      }
+    })();
+  }, [toast]);
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <Card className="p-5 h-48 animate-pulse bg-muted/20" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {[...Array(6)].map((_, i) => (
+            <Card key={i} className="p-5 h-40 animate-pulse bg-muted/20" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Recommended stack */}
+      <Card className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Layers className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-sm font-semibold">Recommended Composable Stack</h3>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">
+          No single GitHub repo covers all needs (Zerodha + MT5 + options + backtest). Use this layered stack:
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {Object.entries(stack).map(([layer, recommendation]) => (
+            <div key={layer} className="bg-muted/20 p-2.5 rounded border border-border">
+              <div className="text-[10px] text-emerald-400 uppercase tracking-wider font-medium">{layer.replace(/_/g, " ")}</div>
+              <div className="text-xs mt-0.5">{recommendation}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Key insights */}
+      <Card className="p-4 border-amber-500/30 bg-amber-500/5">
+        <div className="flex items-center gap-2 mb-3">
+          <Lightbulb className="w-4 h-4 text-amber-400" />
+          <h3 className="text-sm font-semibold">Key Insights & Reality Check</h3>
+        </div>
+        <ul className="space-y-2">
+          {insights.map((insight, i) => (
+            <li key={i} className="text-xs text-muted-foreground leading-relaxed flex gap-2">
+              <span className="text-amber-400 shrink-0">→</span>
+              <span>{insight}</span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+
+      {/* Repos grid */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-emerald-400" />
+            Top GitHub Repositories
+          </h3>
+          <Badge variant="outline" className="text-[10px]">{repos.length} repos analyzed</Badge>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {repos.map((repo) => (
+            <RepoCard key={repo.name} repo={repo} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RepoCard({ repo }: { repo: ResearchRepo }) {
+  const ratingColor =
+    repo.rating === 5 ? "text-emerald-400" : repo.rating === 4 ? "text-amber-400" : "text-zinc-400";
+
+  return (
+    <Card className="p-4 hover:border-emerald-500/40 transition-colors">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-2">
+        <a
+          href={repo.url}
+          target="_blank"
+          rel="noreferrer"
+          className="font-semibold text-sm hover:text-emerald-400 inline-flex items-center gap-1"
+        >
+          {repo.name}
+          <ExternalLink className="w-3 h-3 opacity-60" />
+        </a>
+        <div className="flex items-center gap-0.5">
+          {[...Array(5)].map((_, i) => (
+            <Star
+              key={i}
+              className={cn(
+                "w-3 h-3",
+                i < repo.rating ? `${ratingColor} fill-current` : "text-zinc-700"
+              )}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Description */}
+      <p className="text-[11px] text-muted-foreground leading-relaxed mb-3">{repo.description}</p>
+
+      {/* Best for */}
+      <div className="text-[10px] mb-2.5">
+        <span className="text-muted-foreground">Best for: </span>
+        <span className="text-emerald-400 font-medium">{repo.best_for}</span>
+      </div>
+
+      {/* Meta */}
+      <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <Star className="w-3 h-3" />
+          {repo.stars}
+        </span>
+        <Badge variant="outline" className="text-[9px] px-1 py-0">{repo.lang}</Badge>
+        <Badge variant="outline" className="text-[9px] px-1 py-0">{repo.license}</Badge>
+      </div>
+    </Card>
+  );
+}

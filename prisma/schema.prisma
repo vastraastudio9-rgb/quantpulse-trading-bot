@@ -1,0 +1,230 @@
+// Trading Bot Database Schema
+// Supports multi-asset: Indian F&O (NSE/BSE), MCX (Gold/NatGas), Forex (MT5)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ BROKER CONFIGURATION ============
+model BrokerConfig {
+  id          String   @id @default(cuid())
+  brokerType  String   // ZERODHA | MT5 | ANGEL | FYERS
+  displayName String
+  apiKey      String?
+  apiSecret   String?
+  accessToken String?
+  requestToken String?
+  // MT5 specific
+  mt5Login    String?
+  mt5Password String?
+  mt5Server   String?
+  // Status
+  isActive    Boolean  @default(false)
+  isConnected Boolean  @default(false)
+  paperMode   Boolean  @default(true)
+  // Supported segments
+  segments    String   @default("NSE,FNO,MCX,CDS") // CSV
+  lastSyncAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============ TRADING INSTRUMENTS ============
+model Instrument {
+  id            String   @id @default(cuid())
+  symbol        String   @unique // NIFTY, BANKNIFTY, GOLD, NATURALGAS, EURUSD
+  name          String
+  exchange      String   // NSE | BSE | MCX | FOREX
+  segment       String   // EQ | FNO | COMMODITY | CURRENCY
+  assetClass    String   // INDEX | STOCK | COMMODITY | CURRENCY | CRYPTO
+  lotSize       Int      @default(1)
+  tickSize      Float    @default(0.05)
+  expiryDay     String?  // THU | FRI for F&O
+  isActive      Boolean  @default(true)
+  basePrice     Float    // approx current price for mock data seeding
+  volatility    Float    @default(0.15) // annualized vol %
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ============ STRATEGY DEFINITIONS ============
+model Strategy {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  type          String   // STRADDLE | STRANGLE | IRON_CONDOR | SCALPER | BREAKOUT
+  description   String
+  isActive      Boolean  @default(false)
+  isPaper       Boolean  @default(true)
+  // Entry rules (stored as JSON string)
+  entryRules    String   // JSON: { entryTime: "09:35", strikeOffset: 0, daysToExpiry: 0 }
+  exitRules     String   // JSON: { exitTime: "15:10", slPercent: 25, tpPercent: 50 }
+  // Risk params
+  lotSize       Int      @default(1)
+  maxPositions  Int      @default(1)
+  stopLossPct   Float    @default(25.0)
+  takeProfitPct Float    @default(50.0)
+  // Backtest stats (last run)
+  lastBacktestAt   DateTime?
+  lastSharpe       Float?
+  lastWinRate      Float?
+  lastMaxDrawdown  Float?
+  lastTotalReturn  Float?
+  lastTotalTrades  Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  signals       Signal[]
+  trades        Trade[]
+  backtests     Backtest[]
+  positions     Position[]
+}
+
+// ============ LIVE SIGNALS ============
+model Signal {
+  id           String   @id @default(cuid())
+  strategyId   String
+  strategy     Strategy @relation(fields: [strategyId], references: [id])
+  instrumentSymbol String
+  exchange     String
+  signalType   String   // BUY | SELL | EXIT
+  // Option details (for F&O)
+  optionType   String?  // CE | PE
+  strikePrice  Float?
+  spotPrice    Float?
+  // Levels
+  entryPrice   Float
+  stopLoss     Float
+  target       Float
+  // Confidence & Greeks
+  confidence   Float    // 0-100
+  delta        Float?
+  theta        Float?
+  vega         Float?
+  gamma        Float?
+  // Status
+  status       String   @default("ACTIVE") // ACTIVE | TRIGGERED | EXPIRED | CLOSED
+  reason       String?  // why signal generated
+  createdAt    DateTime @default(now())
+  triggeredAt  DateTime?
+  closedAt     DateTime?
+}
+
+// ============ POSITIONS & TRADES ============
+model Position {
+  id            String   @id @default(cuid())
+  instrumentSymbol String
+  exchange      String
+  strategyId    String?
+  // Position details
+  side          String   // LONG | SHORT
+  quantity      Int
+  avgPrice      Float
+  ltp           Float    // last traded price
+  // Risk
+  stopLoss      Float?
+  target        Float?
+  // P&L
+  unrealizedPnl Float    @default(0)
+  realizedPnl   Float    @default(0)
+  // Status
+  status        String   @default("OPEN") // OPEN | CLOSED
+  openedAt      DateTime @default(now())
+  closedAt      DateTime?
+  strategy      Strategy? @relation(fields: [strategyId], references: [id])
+}
+
+model Trade {
+  id            String   @id @default(cuid())
+  strategyId    String?
+  strategy      Strategy? @relation(fields: [strategyId], references: [id])
+  instrumentSymbol String
+  exchange      String
+  side          String   // BUY | SELL
+  quantity      Int
+  price         Float
+  value         Float
+  // P&L for closed trade
+  pnl           Float    @default(0)
+  pnlPct        Float    @default(0)
+  // Fees
+  brokerage     Float    @default(0)
+  taxes         Float    @default(0)
+  // Metadata
+  tradeType     String   @default("PAPER") // PAPER | LIVE
+  signalId      String?
+  exitPrice     Float?
+  openedAt      DateTime @default(now())
+  closedAt      DateTime?
+  duration      Int?     // seconds
+}
+
+// ============ BACKTEST RUNS ============
+model Backtest {
+  id            String   @id @default(cuid())
+  strategyId    String
+  strategy      Strategy @relation(fields: [strategyId], references: [id])
+  // Config
+  instrumentSymbol String
+  startDate     DateTime
+  endDate       DateTime
+  timeframe     String   // 1m | 5m | 15m | 1h | 1d
+  initialCapital Float
+  // Results
+  finalCapital  Float?
+  totalReturnPct Float?
+  totalTrades   Int?
+  winRate       Float?
+  profitFactor  Float?
+  sharpe        Float?
+  sortino       Float?
+  maxDrawdown   Float?
+  avgWin        Float?
+  avgLoss       Float?
+  // Detailed results stored as JSON
+  equityCurve   String?  // JSON array of {date, value}
+  monthlyReturns String? // JSON
+  tradesJson    String?  // JSON of trades list
+  status        String   @default("PENDING") // PENDING | RUNNING | COMPLETED | FAILED
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+}
+
+// ============ DAILY P&L SNAPSHOT ============
+model DailyPnl {
+  id            String   @id @default(cuid())
+  date          DateTime
+  instrumentSymbol String?
+  realizedPnl   Float    @default(0)
+  unrealizedPnl Float    @default(0)
+  totalPnl      Float    @default(0)
+  tradesCount   Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@unique([date, instrumentSymbol])
+}
+
+// ============ APP SETTINGS ============
+model AppSetting {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  value         String
+  category      String   @default("GENERAL") // RISK | NOTIFY | DATA | GENERAL
+  updatedAt     DateTime @updatedAt
+}
+
+// ============ RISK MANAGEMENT ============
+model RiskConfig {
+  id              String   @id @default(cuid())
+  maxDailyLossPct Float    @default(3.0)    // % of capital
+  maxPositionSize Float    @default(100000) // ₹ max per position
+  maxOpenPositions Int     @default(5)
+  killSwitchEnabled Boolean @default(false)
+  killSwitchReason String?
+  positionSizingPct Float  @default(2.0)    // risk % per trade
+  updatedAt       DateTime @updatedAt
+}
