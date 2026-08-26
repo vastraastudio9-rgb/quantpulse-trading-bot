@@ -60,6 +60,8 @@ class BotConfig:
     scan_interval_seconds: int = 30
     # Send Telegram alerts on execution
     send_telegram_alerts: bool = True
+    # Avoid repeating the same qualifying paper signal every scan.
+    signal_alert_cooldown_minutes: int = 15
     # Strategies to skip (blacklist)
     strategy_blacklist: Set[str] = field(default_factory=set)
     # Paper mode (always True in autonomous — live requires human approval)
@@ -95,6 +97,50 @@ class AutoTradingBot:
         self._execution_count = 0
         self._rejection_count = 0
         self._last_scan: Optional[Dict] = None
+        self._signal_alert_times: Dict[str, float] = {}
+        self._signal_alert_count = 0
+        self._last_signal_alert: Optional[Dict] = None
+
+    def _notify_paper_signal(self, signal: Dict, regime: str, execution_scope: str) -> Dict:
+        """Deliver valid PAPER signals independently of position acceptance."""
+        if not (self.config.send_telegram_alerts and telegram_bot.is_configured()):
+            return {"sent": False, "reason": "Telegram alerts are disabled or not configured"}
+        if signal.get("paper_execution_eligible") is not True:
+            return {"sent": False, "reason": "Signal failed structural paper validation"}
+        key = f"{signal.get('symbol')}:{signal.get('strategy_key')}:{signal.get('direction', '')}"
+        now = time.monotonic()
+        cooldown = max(1, int(self.config.signal_alert_cooldown_minutes)) * 60
+        remaining = cooldown - (now - self._signal_alert_times.get(key, -cooldown))
+        if remaining > 0:
+            return {"sent": False, "reason": "Signal alert cooldown", "retry_after_seconds": round(remaining)}
+        result = telegram_bot.send_alert(
+            title="JARVIS Paper Signal",
+            message=(
+                f"PAPER ONLY — no live order\n"
+                f"Strategy: {signal.get('strategy_name', signal.get('strategy_key', ''))}\n"
+                f"Symbol: {signal.get('symbol', '')}\n"
+                f"Regime: {regime}\n"
+                f"Confidence: {signal.get('confidence', 0)}%\n"
+                f"Direction: {signal.get('direction', '')}\n"
+                f"Entry: ₹{signal.get('entry_price', 0)}\n"
+                f"SL: ₹{signal.get('stop_loss', 0)}\n"
+                f"Target: ₹{signal.get('target', 0)}\n"
+                f"Scope: {execution_scope}"
+            ),
+            alert_type="INFO",
+        )
+        sent = result.get("ok") is True
+        self._last_signal_alert = {
+            "sent": sent, "symbol": signal.get("symbol"), "strategy": signal.get("strategy_key"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": None if sent else result.get("description", result.get("error", "Telegram delivery failed")),
+        }
+        if sent:
+            self._signal_alert_times[key] = now
+            self._signal_alert_count += 1
+            metrics.inc_counter("paper_signal_alerts_total", strategy=signal.get("strategy_key", ""),
+                                symbol=signal.get("symbol", ""))
+        return self._last_signal_alert
 
     def start(self) -> bool:
         """Start the auto-trading bot. Returns True if started."""
@@ -289,6 +335,10 @@ class AutoTradingBot:
         except Exception as e:
             logger.error(f"Auto bot: position sizing failed closed: {e}")
             return
+
+        # A qualifying paper signal remains useful when portfolio risk later
+        # rejects a new position because of duplication or exposure limits.
+        self._notify_paper_signal(signal, regime_state.composite_regime, execution_scope)
         
         # Execute via paper trading engine
         execution_engine = get_execution_engine()
@@ -319,7 +369,7 @@ class AutoTradingBot:
             metrics.inc_counter("auto_bot_executions_total", strategy=strategy_key, symbol=symbol)
             
             # Send Telegram alert
-            if signal.get("execution_eligible") is True and self.config.send_telegram_alerts and telegram_bot.is_configured():
+            if execution_scope != "PAPER_RND" and signal.get("execution_eligible") is True and self.config.send_telegram_alerts and telegram_bot.is_configured():
                 try:
                     telegram_bot.send_alert(
                         title="🤖 Auto-Trade Executed",
@@ -372,6 +422,7 @@ class AutoTradingBot:
             "scan_interval_seconds": self.config.scan_interval_seconds,
             "use_regime_filter": self.config.use_regime_filter,
             "send_telegram_alerts": self.config.send_telegram_alerts,
+            "signal_alert_cooldown_minutes": self.config.signal_alert_cooldown_minutes,
             "strategy_blacklist": list(self.config.strategy_blacklist),
             "stats": {
                 "scans_total": self._scan_count,
@@ -380,6 +431,7 @@ class AutoTradingBot:
                 "trades_today": self._trades_today,
                 "execution_rate": round(self._execution_count / max(1, self._scan_count) * 100, 1),
             },
+            "paper_signal_alerts": {"sent_total": self._signal_alert_count, "last": self._last_signal_alert},
             "last_scan": self._last_scan,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }

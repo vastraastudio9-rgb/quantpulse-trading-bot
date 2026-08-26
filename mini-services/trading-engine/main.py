@@ -1382,6 +1382,7 @@ class AutoBotConfigRequest(BaseModel):
     max_trades_per_day: Optional[int] = None
     scan_interval_seconds: Optional[int] = None
     send_telegram_alerts: Optional[bool] = None
+    signal_alert_cooldown_minutes: Optional[int] = None
     strategy_blacklist: Optional[List[str]] = None
 
 
@@ -1399,6 +1400,8 @@ def auto_bot_configure(req: AutoBotConfigRequest):
         bot.config.scan_interval_seconds = req.scan_interval_seconds
     if req.send_telegram_alerts is not None:
         bot.config.send_telegram_alerts = req.send_telegram_alerts
+    if req.signal_alert_cooldown_minutes is not None:
+        bot.config.signal_alert_cooldown_minutes = max(1, min(240, req.signal_alert_cooldown_minutes))
     if req.strategy_blacklist is not None:
         bot.config.strategy_blacklist = set(req.strategy_blacklist)
     return {"success": True, "config": bot.status()}
