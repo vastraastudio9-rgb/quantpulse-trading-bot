@@ -33,6 +33,13 @@ and under `/api/jarvis/autonomy/*`.
 The supervisor is intentionally paper-only. It cannot activate LIVE mode or
 submit broker orders, and a restart never relaxes the live-trading safeguards.
 
+Research policy selection uses a chronological 60/20/20 train, validation, and
+untouched holdout split. Strategies must pass transaction-cost, drawdown,
+profit-factor, minimum-trade, credibility, and Monte Carlo ruin gates. The
+generated runtime policy stays under the ignored `data/` directory because it
+must be regenerated from the deployment's configured data source. With the
+built-in synthetic source, every approved policy remains paper-only.
+
 Run validation with:
 
 ```text

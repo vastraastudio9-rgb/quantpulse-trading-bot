@@ -369,11 +369,17 @@ class AutonomySupervisor:
             self._alerts = self._alerts[-100:]
 
     def status(self) -> Dict:
+        from research_optimizer import load_policy
+        research_policy = load_policy()
         return {"enabled": self.config.enabled, "running": self._running, "paper_only": True,
                 "config": asdict(self.config), "heartbeat": self._last_heartbeat,
                 "workflow_phase": self._last_workflow_phase, "health": self._last_health,
                 "reconciliation": self._last_reconciliation, "recoveries": self._recovery_count,
                 "promotion": self.promotion_status(), "governance": self.strategy_governance(),
+                "research_policy": {"mode": research_policy.get("mode", "RISK_OFF"),
+                                    "data_source": research_policy.get("data_source", "NONE"),
+                                    "approved_by_symbol": research_policy.get("approved_by_symbol", {}),
+                                    "live_eligible": False},
                 "alerts": self._alerts[-20:], "recent_decisions": self.decisions(20),
                 "timestamp": datetime.now(timezone.utc).isoformat()}
 

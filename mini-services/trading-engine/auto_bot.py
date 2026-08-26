@@ -30,6 +30,7 @@ from regime import classify_full_regime, route_strategies, RegimeState, Strategy
 from execution_engine import get_execution_engine
 from risk_engine import get_portfolio_engine
 from observability import logger, metrics
+from research_optimizer import load_policy
 import brokers.telegram_bot as telegram_bot
 
 
@@ -125,6 +126,14 @@ class AutoTradingBot:
         self.config.enabled = False
         return {"enabled": False, "message": "Auto-trading bot disabled and stopped"}
 
+    def reset_session_stats(self) -> None:
+        self._trades_today = 0
+        self._scan_count = 0
+        self._execution_count = 0
+        self._rejection_count = 0
+        self._last_scan = None
+        self._last_reset_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+
     def _check_daily_reset(self):
         """Reset daily trade counter at start of new day."""
         today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
@@ -196,7 +205,26 @@ class AutoTradingBot:
             s for s in routing.recommended_strategies
             if s not in self.config.strategy_blacklist and s in STRATEGIES
         ]
+        policy = load_policy()
+        policy_choice = policy.get("approved_by_symbol", {}).get(symbol, {}).get("strategy")
+        if policy.get("mode") == "RISK_OFF" or not policy_choice:
+            self._last_scan = {
+                "symbol": symbol, "regime": regime_state.composite_regime,
+                "action": "NO_TRADE_RESEARCH_POLICY",
+                "reason": "No algorithm passed untouched holdout gates for this symbol",
+                "research_mode": policy.get("mode", "RISK_OFF"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            return
+        candidates = [candidate for candidate in candidates if candidate == policy_choice]
         if not candidates:
+            self._last_scan = {
+                "symbol": symbol, "regime": regime_state.composite_regime,
+                "action": "NO_TRADE_POLICY_REGIME_MISMATCH",
+                "reason": f"Validated {policy_choice} is not suitable for the current regime",
+                "research_mode": policy.get("mode", "RISK_OFF"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
             return
         
         strategy_key = random.choice(candidates)
@@ -325,10 +353,13 @@ class AutoTradingBot:
 
     def status(self) -> Dict:
         """Get bot status."""
+        policy = load_policy()
         return {
             "enabled": self.config.enabled,
             "running": self._running,
             "paper_mode": self.config.paper_mode,
+            "research_mode": policy.get("mode", "RISK_OFF"),
+            "research_data_source": policy.get("data_source", "NONE"),
             "symbols": self.config.symbols,
             "min_confidence": self.config.min_confidence,
             "max_trades_per_day": self.config.max_trades_per_day,

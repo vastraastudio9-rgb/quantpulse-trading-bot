@@ -22,6 +22,7 @@ Endpoints:
 import os
 import random
 import time
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -49,6 +50,7 @@ from trade_journal import get_journal
 from trading_mode import get_trading_mode
 from live_execution import execute_live_legs
 from autonomy import get_autonomy_supervisor
+from research_optimizer import load_policy, run_research
 
 app = FastAPI(
     title="Multi-Asset Trading Engine API",
@@ -1366,6 +1368,17 @@ class AutonomyConfigRequest(BaseModel):
     daily_workflow_enabled: Optional[bool] = None
 
 
+class PaperResetRequest(BaseModel):
+    confirmation: str
+    initial_capital: float = 100000
+
+
+class ResearchRunRequest(BaseModel):
+    symbols: Optional[List[str]] = None
+    strategies: Optional[List[str]] = None
+    days: int = 730
+
+
 @app.get("/api/jarvis/autonomy/status")
 def autonomy_status():
     return get_autonomy_supervisor().status()
@@ -1420,6 +1433,41 @@ def autonomy_reconcile():
 @app.post("/api/jarvis/autonomy/daily-report")
 def autonomy_daily_report():
     return get_autonomy_supervisor().generate_daily_report()
+
+
+@app.post("/api/jarvis/paper/reset")
+def reset_paper_trading(req: PaperResetRequest):
+    """Destructively reset simulated positions, P&L, counters, and journal."""
+    if req.confirmation != "RESET PAPER ACCOUNT":
+        raise HTTPException(status_code=400, detail="Exact confirmation phrase required")
+    if get_trading_mode().status()["mode"] != "PAPER":
+        raise HTTPException(status_code=409, detail="Paper reset is unavailable in LIVE mode")
+    get_auto_bot().disable()
+    result = get_portfolio_engine().reset_paper_account(req.initial_capital)
+    cleared = get_journal().clear()
+    get_auto_bot().reset_session_stats()
+    get_autonomy_supervisor().record_decision("PAPER_ACCOUNT_RESET", "PORTFOLIO",
+                                              "User-authorized research reset",
+                                              {"capital": req.initial_capital, "journal_trades_cleared": cleared})
+    return {**result, "journal_trades_cleared": cleared}
+
+
+@app.get("/api/jarvis/research-policy")
+def research_policy_status():
+    return load_policy()
+
+
+@app.post("/api/jarvis/research-policy/run")
+def research_policy_run(req: ResearchRunRequest):
+    unknown_symbols = set(req.symbols or []) - set(INSTRUMENTS)
+    unknown_strategies = set(req.strategies or []) - set(STRATEGIES)
+    if unknown_symbols or unknown_strategies:
+        raise HTTPException(status_code=400, detail={"unknown_symbols": sorted(unknown_symbols),
+                                                     "unknown_strategies": sorted(unknown_strategies)})
+    if not 365 <= req.days <= 1825:
+        raise HTTPException(status_code=400, detail="Research window must be 365-1825 days")
+    output = Path(__file__).parent / "data" / "research-policy.json"
+    return run_research(req.symbols, req.strategies, req.days, output)
 
 
 # ============ TRADE JOURNAL ENDPOINTS ============

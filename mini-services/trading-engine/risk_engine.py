@@ -166,6 +166,26 @@ class PortfolioRiskEngine:
             self._save_state()
             return True, "Position added"
 
+    def reset_paper_account(self, initial_capital: Optional[float] = None) -> Dict:
+        """Reset simulated account state. This never touches broker or mode state."""
+        with self._lock:
+            capital = float(initial_capital or self.initial_capital)
+            if capital <= 0:
+                raise ValueError("Initial capital must be positive")
+            self.initial_capital = capital
+            self.current_capital = capital
+            self.positions.clear()
+            self.realized_pnl_today = 0.0
+            self.realized_pnl_total = 0.0
+            self.trade_history.clear()
+            self._daily_loss_lock = False
+            self._last_reset_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+            self.limits.kill_switch = False
+            self.limits.kill_switch_reason = ""
+            self._save_state()
+            return {"reset": True, "paper_only": True, "capital": capital,
+                    "timestamp": datetime.now(timezone.utc).isoformat()}
+
     def _pre_trade_checks(self, new_pos: Position) -> Dict[str, Tuple[bool, str]]:
         """Run all pre-trade risk checks. ALL must pass."""
         checks = {}

@@ -271,6 +271,7 @@ def run_backtest(
     max_positions: int = 1,
     slippage_enabled: bool = True,
     mark_to_market: bool = True,
+    bars_override: Optional[List[Dict]] = None,
 ) -> Dict:
     """Run a backtest for given strategy on historical data.
     
@@ -297,7 +298,7 @@ def run_backtest(
     bars_per_year = {"1m": 252 * 375, "5m": 252 * 75, "15m": 252 * 25, "1h": 252 * 6, "1d": 252}.get(timeframe, 252)
     
     # Get historical data
-    bars = generate_history(symbol, days=days, timeframe=timeframe)
+    bars = list(bars_override) if bars_override is not None else generate_history(symbol, days=days, timeframe=timeframe)
     if not bars:
         return {"status": "FAILED", "error": "No historical data", "metrics": _empty_metrics()}
     
@@ -481,19 +482,23 @@ def run_backtest(
             
             # Determine exit reason
             exit_reason = None
-            if open_position["side"] == "SELL" and current_premium >= open_position["sl_price"]:
+            # A position entered at this bar's open cannot also exit using the
+            # same bar's close-derived signal model. Require one full subsequent
+            # bar to prevent impossible zero-duration round trips.
+            can_exit = bars_held >= 1
+            if can_exit and open_position["side"] == "SELL" and current_premium >= open_position["sl_price"]:
                 exit_reason = "SL_HIT"
-            elif open_position["side"] == "BUY" and current_premium <= open_position["sl_price"]:
+            elif can_exit and open_position["side"] == "BUY" and current_premium <= open_position["sl_price"]:
                 exit_reason = "SL_HIT"
-            elif open_position["side"] == "SELL" and current_premium <= open_position["tp_price"]:
+            elif can_exit and open_position["side"] == "SELL" and current_premium <= open_position["tp_price"]:
                 exit_reason = "TP_HIT"
-            elif open_position["side"] == "BUY" and current_premium >= open_position["tp_price"]:
+            elif can_exit and open_position["side"] == "BUY" and current_premium >= open_position["tp_price"]:
                 exit_reason = "TP_HIT"
-            elif bars_held >= min(open_position["total_bars_to_expiry"], 5):  # max 5 bars or to expiry
+            elif can_exit and bars_held >= min(open_position["total_bars_to_expiry"], 5):  # max 5 bars or to expiry
                 exit_reason = "TIME_EXIT"
             
             # VRP-specific exit: exit when IV Rank normalizes (< 30)
-            if open_position.get("strategy_key") == "VRP_HARVEST" and not exit_reason:
+            if can_exit and open_position.get("strategy_key") == "VRP_HARVEST" and not exit_reason:
                 if i >= 60:
                     current_iv_rank_exit = iv_rank(bars[:i+1], lookback=60)
                     if current_iv_rank_exit < 30:

@@ -65,6 +65,7 @@ interface AutonomyStatus {
   reconciliation: { status: string; internal_positions?: number; issues?: string[] };
   recoveries: number;
   promotion: { eligible_to_request_live_review: boolean; closed_paper_trades: number; blockers: string[] };
+  research_policy: { mode: string; data_source: string; approved_by_symbol: Record<string, unknown>; live_eligible: boolean };
   governance: { strategies: Record<string, { state: string; reason: string; trades: number }> };
   alerts: Array<{ level: string; code: string; message: string }>;
   recent_decisions: Array<{ timestamp: string; action: string; subject: string; reason: string }>;
@@ -263,7 +264,7 @@ export function JarvisView() {
             <Metric label="Data Health" value={autonomy.health.status} positive={autonomy.health.status === "OK"} negative={autonomy.health.status === "FAILED"} />
             <Metric label="Recoveries" value={String(autonomy.recoveries)} />
             <Metric label="Paper Trades" value={String(autonomy.promotion.closed_paper_trades)} />
-            <Metric label="Live Review" value={autonomy.promotion.eligible_to_request_live_review ? "ELIGIBLE" : "BLOCKED"} warning={!autonomy.promotion.eligible_to_request_live_review} />
+            <Metric label="Algo Mode" value={autonomy.research_policy.mode} warning={autonomy.research_policy.mode === "RISK_OFF"} />
           </div>
         )}
       </Card>
