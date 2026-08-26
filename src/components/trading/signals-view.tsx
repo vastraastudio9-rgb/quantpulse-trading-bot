@@ -135,8 +135,8 @@ export function SignalsView() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {signals.map((sig) => (
-            <SignalCard key={sig.signal_id} signal={sig} />
+          {signals.map((sig, index) => (
+            <SignalCard key={`${sig.signal_id}-${sig.timestamp}-${index}`} signal={sig} />
           ))}
         </div>
       )}

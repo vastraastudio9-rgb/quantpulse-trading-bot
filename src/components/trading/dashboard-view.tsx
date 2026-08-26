@@ -163,10 +163,10 @@ export function DashboardView() {
             <Badge variant="outline" className="text-[10px]">{signals.length}</Badge>
           </div>
           <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-            {signals.map((s) => {
+            {signals.map((s, index) => {
               const isBuy = s.direction.includes("NEUTRAL") || s.direction.includes("BREAKOUT");
               return (
-                <div key={s.signal_id} className="flex items-start gap-2 p-2 rounded-md bg-muted/20 hover:bg-muted/40 transition-colors">
+                <div key={`${s.signal_id}-${s.timestamp}-${index}`} className="flex items-start gap-2 p-2 rounded-md bg-muted/20 hover:bg-muted/40 transition-colors">
                   <div className={cn("w-1 h-full rounded-full self-stretch shrink-0", isBuy ? "bg-emerald-400" : "bg-red-400")} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1">
