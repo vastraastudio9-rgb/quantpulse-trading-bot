@@ -163,8 +163,20 @@ export interface DashboardData {
   }[];
   equity_curve: { date: string; value: number }[];
   signals: TradingSignal[];
+  signals_are_actionable: boolean;
+  research_policy: ResearchPolicy;
   positions: Position[];
   timestamp: string;
+}
+
+export interface ResearchPolicy {
+  mode: string;
+  paper_only: boolean;
+  data_source: string;
+  evidence_grade: string;
+  live_eligible: boolean;
+  approved_count: number;
+  generated_at?: string | null;
 }
 
 export interface BrokerStatus {
@@ -264,6 +276,9 @@ export const tradingApi = {
     }),
 
   getDashboard: () => fetchJson<DashboardData>(apiUrl("/api/dashboard")),
+
+  getResearchPolicy: () =>
+    fetchJson<ResearchPolicy>(apiUrl("/api/jarvis/research-policy")),
 
   getBrokersStatus: () =>
     fetchJson<BrokersStatusResponse>(apiUrl("/api/brokers/status")),

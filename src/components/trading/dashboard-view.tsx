@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TrendingUp, TrendingDown, Wallet, Target, Activity, ArrowUpRight, ArrowDownRight, Zap } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, Target, Activity, ArrowUpRight, ArrowDownRight, Zap, ShieldAlert } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Sparkline, EquityChart } from "./charts";
@@ -48,11 +48,24 @@ export function DashboardView() {
       </Card>
     );
 
-  const { stats, quotes, equity_curve, signals, positions } = data;
+  const { stats, quotes, equity_curve, signals, positions, research_policy: policy, signals_are_actionable: signalsAreActionable } = data;
   const pnlPositive = stats.today_pnl >= 0;
 
   return (
     <div className="space-y-5">
+      {policy.mode === "RISK_OFF" && (
+        <Card className="p-4 border-red-500/50 bg-red-500/5">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-semibold text-red-400">JARVIS RISK OFF — no strategy is approved</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Signals below are research candidates only. Data: {policy.data_source} • Evidence: {policy.evidence_grade} • Paper trading only
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
@@ -65,7 +78,7 @@ export function DashboardView() {
         <KpiCard
           label="Open Positions"
           value={stats.open_positions.toString()}
-          subValue={`${stats.active_signals} active signals`}
+          subValue={`${stats.active_signals} approved signals`}
           icon={Wallet}
           neutral
         />
@@ -143,7 +156,7 @@ export function DashboardView() {
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm font-semibold flex items-center gap-1.5">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
-              Recent Signals
+              {signalsAreActionable ? "Recent Signals" : "Research Candidates"}
             </div>
             <Badge variant="outline" className="text-[10px]">{signals.length}</Badge>
           </div>
@@ -161,7 +174,9 @@ export function DashboardView() {
                     <div className="text-[10px] text-muted-foreground truncate">{s.strategy_name}</div>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <Badge variant="outline" className="text-[9px] px-1 py-0">{s.strategy_type}</Badge>
-                      {s.status === "TRIGGERED" && (
+                      {!signalsAreActionable ? (
+                        <Badge className="text-[9px] px-1 py-0 bg-red-500/15 text-red-400 border-0">NOT APPROVED</Badge>
+                      ) : s.status === "TRIGGERED" && (
                         <Badge className="text-[9px] px-1 py-0 bg-amber-500/15 text-amber-400 border-0">TRIGGERED</Badge>
                       )}
                     </div>

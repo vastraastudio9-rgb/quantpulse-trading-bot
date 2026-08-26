@@ -22,6 +22,7 @@ Endpoints:
 import os
 import random
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta, timezone
@@ -57,10 +58,25 @@ from orb_algorithm import ORBConfig, run_orb_backtest
 from nse_data_adapter import download_nse_index
 from broker_data_adapter import download_broker_candles
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Resume only persisted PAPER autonomy after a process restart."""
+    supervisor = get_autonomy_supervisor()
+    if supervisor.config.enabled:
+        supervisor.start()
+        get_execution_engine().start_monitoring(5)
+        bot = get_auto_bot()
+        bot.config.enabled = True
+        bot.start()
+    yield
+
+
 app = FastAPI(
     title="Multi-Asset Trading Engine API",
     description="Indian F&O + MCX + Forex trading engine with options strategies, signals & backtesting",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Browser access is same-origin in production. Development origins must be
@@ -77,18 +93,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def resume_safe_background_workers():
-    """Resume only persisted PAPER autonomy after a process restart."""
-    supervisor = get_autonomy_supervisor()
-    if supervisor.config.enabled:
-        supervisor.start()
-        get_execution_engine().start_monitoring(5)
-        bot = get_auto_bot()
-        bot.config.enabled = True
-        bot.start()
 
 # ============ REQUEST LOGGING MIDDLEWARE ============
 @app.middleware("http")
@@ -346,7 +350,9 @@ def dashboard():
     history = get_portfolio_engine().trade_history
     wins = sum(1 for trade in history if trade.get("pnl", 0) > 0)
     win_rate = (wins / len(history) * 100) if history else 0
-    active_signals = len([s for s in signals if s.get("status") == "ACTIVE"])
+    policy = load_policy()
+    signals_are_actionable = policy.get("mode") != "RISK_OFF" and policy.get("approved_count", 0) > 0
+    active_signals = len([s for s in signals if s.get("status") == "ACTIVE"]) if signals_are_actionable else 0
     
     return {
         "stats": {
@@ -364,6 +370,16 @@ def dashboard():
         "quotes": quotes,
         "equity_curve": equity_curve,
         "signals": signals[:6],
+        "signals_are_actionable": signals_are_actionable,
+        "research_policy": {
+            "mode": policy.get("mode", "RISK_OFF"),
+            "paper_only": policy.get("paper_only", True),
+            "data_source": policy.get("data_source", "UNKNOWN"),
+            "evidence_grade": policy.get("evidence_grade", "UNKNOWN"),
+            "live_eligible": policy.get("live_eligible", False),
+            "approved_count": policy.get("approved_count", 0),
+            "generated_at": policy.get("generated_at"),
+        },
         "positions": positions,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

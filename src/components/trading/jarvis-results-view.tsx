@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { tradingApi, type ResearchPolicy } from "@/lib/trading-api";
 
 interface FullAnalysis {
   started_at: string;
@@ -37,7 +38,16 @@ export function JarvisResultsView() {
   const [data, setData] = useState<FullAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasRun, setHasRun] = useState(false);
+  const [policy, setPolicy] = useState<ResearchPolicy | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    let mounted = true;
+    tradingApi.getResearchPolicy().then((current) => {
+      if (mounted) setPolicy(current);
+    }).catch(() => undefined);
+    return () => { mounted = false; };
+  }, []);
 
   const runAnalysis = async () => {
     setLoading(true);
@@ -77,6 +87,21 @@ export function JarvisResultsView() {
 
   return (
     <div className="space-y-4">
+      {policy && (
+        <Card className={cn("p-4", policy.mode === "RISK_OFF" ? "border-red-500/50 bg-red-500/5" : "border-emerald-500/40 bg-emerald-500/5")}>
+          <div className="flex items-start gap-3">
+            <ShieldCheck className={cn("w-5 h-5 shrink-0 mt-0.5", policy.mode === "RISK_OFF" ? "text-red-400" : "text-emerald-400")} />
+            <div>
+              <div className={cn("text-sm font-semibold", policy.mode === "RISK_OFF" ? "text-red-400" : "text-emerald-400")}>
+                Current research policy: {policy.mode}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {policy.approved_count} approved strategies • {policy.data_source} • {policy.evidence_grade} • {policy.paper_only ? "Paper only" : "Live review allowed"}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
       {/* Header + Run Button */}
       <Card className="p-4 border-emerald-500/30 bg-emerald-500/5">
         <div className="flex items-center justify-between">
