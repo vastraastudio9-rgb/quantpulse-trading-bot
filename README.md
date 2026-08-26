@@ -40,6 +40,10 @@ generated runtime policy stays under the ignored `data/` directory because it
 must be regenerated from the deployment's configured data source. With the
 built-in synthetic source, every approved policy remains paper-only.
 
+Real candle imports are normalized into a local DuckDB store with provenance,
+quality checks, and Parquet export. See [ALGORITHM_DESIGN.md](./ALGORITHM_DESIGN.md)
+for the event-driven ORB specification and import workflow.
+
 Run validation with:
 
 ```text

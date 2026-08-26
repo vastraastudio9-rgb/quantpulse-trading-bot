@@ -6,6 +6,7 @@ Market Data Module
 - In production: replace generate_history() with Zerodha Kite historical API + MT5 CopyRates
 """
 import math
+import os
 import random
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
@@ -125,7 +126,7 @@ def _trading_days(start: datetime, end: datetime) -> List[datetime]:
         cur += timedelta(days=1)
     return days
 
-def generate_history(symbol: str, days: int = 180, timeframe: str = "1d") -> List[Dict]:
+def generate_synthetic_history(symbol: str, days: int = 180, timeframe: str = "1d") -> List[Dict]:
     """Generate synthetic OHLC history using GARCH(1,1) volatility clustering.
     
     JARVIS-v2.2 upgrades over plain GBM:
@@ -254,6 +255,38 @@ def generate_history(symbol: str, days: int = 180, timeframe: str = "1d") -> Lis
             "close": round(close, 4),
             "volume": volume,
         })
+    return bars
+
+
+def generate_history(symbol: str, days: int = 180, timeframe: str = "1d") -> List[Dict]:
+    """Resolve normalized real candles first; synthetic use is explicit and labeled.
+
+    MARKET_DATA_MODE:
+      REAL   - fail closed when normalized candles are unavailable or fail quality
+      HYBRID - prefer real candles, otherwise use synthetic engineering data
+      SYNTHETIC - always generate deterministic test candles
+    """
+    mode = os.getenv("MARKET_DATA_MODE", "HYBRID").upper()
+    if mode in ("REAL", "HYBRID"):
+        try:
+            from market_data_store import get_market_data_store
+            store = get_market_data_store()
+            quality = store.quality(symbol, timeframe)
+            if quality["status"] == "PASS":
+                bars = store.bars(symbol, timeframe)
+                if days and bars:
+                    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+                    bars = [bar for bar in bars if datetime.fromisoformat(bar["timestamp"]) >= cutoff]
+                if bars:
+                    return bars
+        except Exception:
+            if mode == "REAL":
+                raise
+    if mode == "REAL":
+        raise RuntimeError(f"No quality-approved real {timeframe} candles for {symbol}")
+    bars = generate_synthetic_history(symbol, days, timeframe)
+    for bar in bars:
+        bar["source"] = "SYNTHETIC_GARCH"
     return bars
 
 # ============ LIVE TICK SIMULATION ============

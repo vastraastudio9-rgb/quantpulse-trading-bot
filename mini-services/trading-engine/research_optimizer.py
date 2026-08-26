@@ -65,9 +65,11 @@ def run_research(
     strategies = strategies or list(STRATEGIES)
     parameter_grid = [(sl, tp) for sl in (20.0, 30.0, 40.0) for tp in (25.0, 40.0, 55.0)]
     results = []
+    data_sources = set()
 
     for symbol in symbols:
         bars = generate_history(symbol, days=days, timeframe="1d")
+        data_sources.update(str(bar.get("source", "UNKNOWN")) for bar in bars[:1])
         n = len(bars)
         train_end, validation_end = int(n * 0.60), int(n * 0.80)
         train, validation, holdout = bars[:train_end], bars[train_end:validation_end], bars[validation_end:]
@@ -103,18 +105,22 @@ def run_research(
             per_symbol[symbol] = {"strategy": best["strategy"], "sl_pct": best["sl_pct"],
                                   "tp_pct": best["tp_pct"], "holdout": best["holdout"]}
     mode = "BALANCED" if len(per_symbol) >= 3 else "DEFENSIVE" if per_symbol else "RISK_OFF"
+    real_sources = sorted(source for source in data_sources if not source.startswith("SYNTHETIC"))
     policy = {
         "version": 1, "generated_at": datetime.now(timezone.utc).isoformat(),
-        "mode": mode, "paper_only": True, "data_source": "SYNTHETIC_GARCH",
+        "mode": mode, "paper_only": True,
+        "data_source": real_sources[0] if len(real_sources) == 1 and len(data_sources) == 1 else "+".join(sorted(data_sources)),
+        "evidence_grade": "REAL_MARKET" if real_sources and len(real_sources) == len(data_sources) else "ENGINEERING_ONLY",
         "live_eligible": False,
         "methodology": "60% train, 20% validation selection, 20% untouched holdout; costs and slippage enabled",
         "approved_by_symbol": per_symbol,
         "approved_count": len(approved), "candidates_tested": len(results),
         "top_results": results[:25],
-        "limitations": [
-            "Synthetic deterministic candles are engineering evidence, not proof of real-market profitability",
-            "Broker historical candles and paper fills are required before any live review",
-        ],
+        "limitations": (["Broker historical option chains and paper fills are required before any live review"]
+                        if real_sources and len(real_sources) == len(data_sources) else [
+                            "Synthetic deterministic candles are engineering evidence, not proof of real-market profitability",
+                            "Broker historical candles and paper fills are required before any live review",
+                        ]),
     }
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)

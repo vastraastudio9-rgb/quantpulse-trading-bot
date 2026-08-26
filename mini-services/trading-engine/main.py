@@ -51,6 +51,8 @@ from trading_mode import get_trading_mode
 from live_execution import execute_live_legs
 from autonomy import get_autonomy_supervisor
 from research_optimizer import load_policy, run_research
+from market_data_store import get_market_data_store
+from orb_algorithm import ORBConfig, run_orb_backtest
 
 app = FastAPI(
     title="Multi-Asset Trading Engine API",
@@ -609,6 +611,8 @@ def send_telegram(req: TelegramSendRequest):
 
 # ============ RESEARCH DATA ============
 RESEARCH_REPOS = [
+    {"name": "jugaad-data", "url": "https://github.com/jugaad-py/jugaad-data", "stars": "500+", "lang": "Python", "license": "MIT", "description": "Community NSE/RBI historical downloader with caching and derivatives support. Useful as a free ingestion adapter, with monitoring for NSE website changes.", "best_for": "Free NSE archive ingestion", "rating": 4},
+    {"name": "DuckDB", "url": "https://github.com/duckdb/duckdb", "stars": "Open source", "lang": "C++/Python", "license": "MIT", "description": "Embedded analytical database with native Parquet support. JARVIS uses it for normalized local candles and provenance.", "best_for": "Local market-data lake", "rating": 5},
     {"name": "OpenAlgo", "url": "https://github.com/marketcalls/openalgo", "stars": "3.5k", "lang": "Python", "license": "AGPL-3.0", "description": "Self-hosted unified API across 35+ Indian brokers. THE top pick for Indian algo trading.", "best_for": "Indian broker abstraction layer", "rating": 5},
     {"name": "zerodha/pykiteconnect", "url": "https://github.com/zerodha/pykiteconnect", "stars": "1.1k", "lang": "Python", "license": "MIT", "description": "Official Zerodha Kite Connect Python client. Foundational library for Kite API.", "best_for": "Zerodha API integration", "rating": 5},
     {"name": "NautilusTrader", "url": "https://github.com/nautechsystems/nautilustrader", "stars": "3.5k", "lang": "Rust/Python", "license": "LGPL-3.0", "description": "Rust-native multi-asset trading engine. Deterministic backtest→live parity. Supports options.", "best_for": "Production-grade multi-asset engine", "rating": 5},
@@ -631,17 +635,18 @@ def research():
         "recommended_stack": {
             "execution": "OpenAlgo + pykiteconnect (Indian F&O + MCX)",
             "forex": "MetaTrader5 Python package (XAUUSD, EURUSD, GBPUSD)",
-            "backtesting": "Backtrader (readable) + VectorBT (fast optimization)",
+            "backtesting": "VectorBT for research + event-driven replay for final validation",
             "greeks": "mibian or custom Black-Scholes implementation",
             "ta_indicators": "TA-Lib + pandas-ta-classic (200+ indicators)",
-            "data_feed": "KiteTicker WebSocket (NSE/MCX) + MT5 ticks (forex)",
+            "data_feed": "NSE archives / Upstox or Kite candles -> normalized DuckDB + Parquet",
+            "event_engine": "JARVIS ORB replay now; NautilusTrader as the scale-up path",
             "framework": "Next.js + FastAPI (this dashboard)",
         },
         "key_insights": [
             "No single GitHub repo covers all user needs (Zerodha + MT5 + options + backtest). Use a composable stack.",
             "SEBI's Aug 2025 + April 2026 retail algo framework requires static IPs, unique algo IDs, broker-approved APIs, kill switches, order rate limits.",
             "Realistic edge targets: 55-65% win rate with 1:1.5+ risk-reward. Anyone claiming 80%+ is curve-fitted or scam.",
-            "Always paper trade for 4+ weeks before going live. Forward-test beats backtest.",
+            "Synthetic candles validate engineering only. Real normalized data plus forward paper fills are required for performance evidence.",
             "Theta decay strategies (straddle/strangle sell) win 60-70% but have tail risk. Always define max loss.",
             "Brokerage + STT + taxes in India: ~0.05-0.1% per options round-trip. Account for this in backtests.",
         ],
@@ -1379,6 +1384,22 @@ class ResearchRunRequest(BaseModel):
     days: int = 730
 
 
+class MarketDataImportRequest(BaseModel):
+    path: str
+    source: str = "NSE_ARCHIVE"
+    symbol: str
+    exchange: str = "NSE"
+    timeframe: str = "1d"
+    instrument_token: str = ""
+
+
+class ORBBacktestRequest(BaseModel):
+    symbol: str
+    source: Optional[str] = None
+    initial_capital: float = 100000
+    config: Optional[Dict] = None
+
+
 @app.get("/api/jarvis/autonomy/status")
 def autonomy_status():
     return get_autonomy_supervisor().status()
@@ -1468,6 +1489,49 @@ def research_policy_run(req: ResearchRunRequest):
         raise HTTPException(status_code=400, detail="Research window must be 365-1825 days")
     output = Path(__file__).parent / "data" / "research-policy.json"
     return run_research(req.symbols, req.strategies, req.days, output)
+
+
+# ============ NORMALIZED MARKET DATA + EVENT BACKTEST ============
+@app.get("/api/jarvis/data/catalog")
+def market_data_catalog():
+    store = get_market_data_store()
+    return {"items": store.catalog(), "database": str(store.path)}
+
+
+@app.get("/api/jarvis/data/quality/{symbol}")
+def market_data_quality(symbol: str, timeframe: str = Query("1d"), source: Optional[str] = Query(None)):
+    return get_market_data_store().quality(symbol, timeframe, source)
+
+
+@app.post("/api/jarvis/data/import-csv")
+def market_data_import_csv(req: MarketDataImportRequest):
+    path = Path(req.path).expanduser().resolve()
+    if not path.is_file() or path.suffix.lower() != ".csv":
+        raise HTTPException(status_code=400, detail="A readable local CSV file is required")
+    return get_market_data_store().import_csv(path, req.source, req.symbol, req.exchange,
+                                              req.timeframe, req.instrument_token)
+
+
+@app.post("/api/jarvis/data/export-parquet")
+def market_data_export_parquet():
+    return get_market_data_store().export_parquet()
+
+
+@app.post("/api/jarvis/backtest/orb")
+def orb_backtest_endpoint(req: ORBBacktestRequest):
+    if req.symbol not in INSTRUMENTS:
+        raise HTTPException(status_code=400, detail="Unknown instrument")
+    store = get_market_data_store()
+    quality = store.quality(req.symbol, "5m", req.source)
+    if quality["status"] != "PASS":
+        raise HTTPException(status_code=422, detail={"message": "Five-minute data failed quality gate", "quality": quality})
+    bars = store.bars(req.symbol, "5m", req.source)
+    try:
+        config = ORBConfig(**(req.config or {}))
+    except TypeError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid ORB configuration: {exc}")
+    cfg = INSTRUMENTS[req.symbol]
+    return run_orb_backtest(bars, req.symbol, cfg["lot_size"], cfg["tick_size"], req.initial_capital, config)
 
 
 # ============ TRADE JOURNAL ENDPOINTS ============

@@ -13,15 +13,23 @@ export function ResearchView() {
   const [stack, setStack] = useState<Record<string, string>>({});
   const [insights, setInsights] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [catalog, setCatalog] = useState<Array<{ source: string; symbol: string; timeframe: string; rows: number; start: string; end: string }>>([]);
+  const [policy, setPolicy] = useState<{ mode: string; data_source: string; evidence_grade?: string } | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     (async () => {
       try {
-        const r = await tradingApi.getResearch();
+        const [r, catalogRes, policyRes] = await Promise.all([
+          tradingApi.getResearch(),
+          fetch("/api/jarvis/data/catalog?XTransformPort=3030"),
+          fetch("/api/jarvis/research-policy?XTransformPort=3030"),
+        ]);
         setRepos(r.repos);
         setStack(r.recommended_stack);
         setInsights(r.key_insights);
+        if (catalogRes.ok) setCatalog((await catalogRes.json()).items || []);
+        if (policyRes.ok) setPolicy(await policyRes.json());
         setLoading(false);
       } catch (e: any) {
         toast({ title: "Failed to load research", description: e.message, variant: "destructive" });
@@ -45,6 +53,28 @@ export function ResearchView() {
 
   return (
     <div className="space-y-4">
+      <Card className="p-4 border-cyan-500/30 bg-cyan-500/5">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-sm font-semibold">Research Evidence</h3>
+            <p className="text-xs text-muted-foreground mt-1">Only quality-approved real candles can produce real-market evidence.</p>
+          </div>
+          <Badge variant="outline" className={cn("text-[10px]", policy?.evidence_grade === "REAL_MARKET" ? "text-emerald-400 border-emerald-500/40" : "text-amber-400 border-amber-500/40")}>
+            {policy?.evidence_grade?.replace(/_/g, " ") || "ENGINEERING ONLY"}
+          </Badge>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+          <EvidenceMetric label="Algorithm Mode" value={policy?.mode || "RISK OFF"} />
+          <EvidenceMetric label="Policy Source" value={policy?.data_source || "NONE"} />
+          <EvidenceMetric label="Real Datasets" value={String(catalog.length)} />
+          <EvidenceMetric label="Stored Candles" value={catalog.reduce((sum, item) => sum + item.rows, 0).toLocaleString()} />
+        </div>
+        {catalog.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{catalog.map((item) => (
+          <Badge key={`${item.source}-${item.symbol}-${item.timeframe}`} variant="outline" className="text-[9px]">
+            {item.symbol} · {item.timeframe} · {item.rows.toLocaleString()} · {item.source}
+          </Badge>
+        ))}</div>}
+      </Card>
       {/* Recommended stack */}
       <Card className="p-4">
         <div className="flex items-center gap-2 mb-3">
@@ -97,6 +127,13 @@ export function ResearchView() {
       </div>
     </div>
   );
+}
+
+function EvidenceMetric({ label, value }: { label: string; value: string }) {
+  return <div className="rounded border border-border bg-background/30 p-2.5">
+    <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</div>
+    <div className="mt-1 font-medium truncate">{value}</div>
+  </div>;
 }
 
 function RepoCard({ repo }: { repo: ResearchRepo }) {

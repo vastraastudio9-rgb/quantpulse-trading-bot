@@ -1,8 +1,10 @@
 fastapi>=0.116,<1
+duckdb>=1.4,<2
 httpx>=0.28,<1
 kiteconnect>=5.2,<6
 numpy>=2,<3
 pandas>=2,<4
+pytz>=2025.2
 psutil>=7,<8
 pydantic>=2,<3
 uvicorn[standard]>=0.35,<1
