@@ -62,3 +62,12 @@ def test_orb_replay_uses_next_bar_and_reports_source():
 def test_orb_empty_data_fails_closed():
     result = run_orb_backtest([], "NIFTY", 75, 0.05)
     assert result["status"] == "FAILED"
+
+
+def test_orb_loss_guard_resets_each_session():
+    bars = _intraday_bars(days=8)
+    result = run_orb_backtest(bars, "NIFTY", 1, 0.05,
+                              config=ORBConfig(relative_volume_min=1.0, reward_risk=20,
+                                               consecutive_loss_stop=1, forced_exit="11:10"))
+    trade_days = {trade["entry_time"][:10] for trade in result["trades"]}
+    assert len(trade_days) > 1

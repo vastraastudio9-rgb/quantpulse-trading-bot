@@ -48,6 +48,17 @@ time, instrument token, expiry, strike and option type fields.
 The strategy emits a desired position. The portfolio risk engine retains final
 authority over whether the trade may execute.
 
+ORB research uses a chronological 60/20/20 session split. Parameters are
+selected using training and validation only; the final 20% remains untouched
+until one candidate is selected. A profitable in-sample configuration is not
+approved unless it also has positive holdout expectancy, profit factor above
+one, at least four holdout trades, and drawdown below eight percent.
+
+Cash-index candles have no traded volume and therefore cannot validate VWAP or
+relative-volume filters. `NIFTYBEES` may be used as a labeled research proxy,
+but production signals should ultimately combine NIFTY spot price with a
+volume-bearing NIFTY futures feed. Proxy results never authorize live trading.
+
 ## Importing real data
 
 Download free official NSE daily index history through the engine:

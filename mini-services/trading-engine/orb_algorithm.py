@@ -56,7 +56,6 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
     state: Dict[str, Dict] = {}
     pending = None
     position = None
-    consecutive_losses = 0
 
     for index, bar in enumerate(ordered):
         timestamp = datetime.fromisoformat(str(bar["timestamp"]).replace("Z", "+00:00"))
@@ -65,6 +64,7 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
         local = timestamp.astimezone(IST)
         day = local.date().isoformat()
         session = state.setdefault(day, {"bars": [], "or_high": None, "or_low": None, "trades": 0,
+                                         "consecutive_losses": 0,
                                          "cum_pv": 0.0, "cum_volume": 0.0})
         session["bars"].append(bar)
         typical = (bar["high"] + bar["low"] + bar["close"]) / 3
@@ -108,7 +108,7 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
                 pnl -= config.commission_per_order * 2
                 capital += pnl
                 session["trades"] += 1
-                consecutive_losses = consecutive_losses + 1 if pnl <= 0 else 0
+                session["consecutive_losses"] = session["consecutive_losses"] + 1 if pnl <= 0 else 0
                 trades.append({"symbol": symbol, "side": "LONG" if position["side"] == 1 else "SHORT",
                                "signal_time": position["signal_time"], "entry_time": position["entry_time"],
                                "exit_time": bar["timestamp"],
@@ -122,7 +122,7 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
             position is None and pending is None and session["or_high"] is not None
             and _clock(config.entry_start) <= local.time() <= _clock(config.entry_cutoff)
             and session["trades"] < config.max_trades_per_day
-            and consecutive_losses < config.consecutive_loss_stop
+            and session["consecutive_losses"] < config.consecutive_loss_stop
             and index + 1 < len(ordered)
         )
         if can_signal:
