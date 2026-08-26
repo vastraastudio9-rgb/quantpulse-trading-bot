@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Boxes, Play, Pause, Settings2, TrendingUp, Target, Shield, Clock } from "lucide-react";
+import { Boxes, Settings2, TrendingUp, Target, Shield, Clock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
@@ -15,7 +14,6 @@ import { cn } from "@/lib/utils";
 export function StrategiesView() {
   const [strategies, setStrategies] = useState<StrategyMeta[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeStrategies, setActiveStrategies] = useState<Record<string, boolean>>({});
   const [editingStrategy, setEditingStrategy] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -24,12 +22,6 @@ export function StrategiesView() {
       try {
         const s = await tradingApi.getStrategies();
         setStrategies(s);
-        // Default: enable straddle sell + strangle sell (most common for theta income)
-        const initial: Record<string, boolean> = {};
-        s.forEach((strat) => {
-          initial[strat.key] = strat.key === "STRADDLE_SELL" || strat.key === "STRANGLE_SELL";
-        });
-        setActiveStrategies(initial);
         setLoading(false);
       } catch (e: any) {
         toast({ title: "Failed to load strategies", description: e.message, variant: "destructive" });
@@ -37,14 +29,6 @@ export function StrategiesView() {
       }
     })();
   }, [toast]);
-
-  const toggleStrategy = (key: string) => {
-    setActiveStrategies((prev) => ({ ...prev, [key]: !prev[key] }));
-    toast({
-      title: activeStrategies[key] ? "Strategy paused" : "Strategy activated",
-      description: `${strategies.find((s) => s.key === key)?.name}`,
-    });
-  };
 
   if (loading) {
     return (
@@ -66,7 +50,7 @@ export function StrategiesView() {
             Trading Strategies
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {Object.values(activeStrategies).filter(Boolean).length} of {strategies.length} strategies active
+            {strategies.length} of {strategies.length} active in paper R&amp;D · actual entries remain regime-gated
           </p>
         </div>
       </div>
@@ -74,7 +58,7 @@ export function StrategiesView() {
       {/* Strategy grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {strategies.map((s) => {
-          const isActive = activeStrategies[s.key];
+          const isActive = true;
           const isEditing = editingStrategy === s.key;
           return (
             <Card key={s.key} className={cn("p-4 transition-colors", isActive ? "border-emerald-500/40" : "border-border")}>
@@ -87,12 +71,7 @@ export function StrategiesView() {
                   </div>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">{s.description}</p>
                 </div>
-                <div className="flex flex-col items-end gap-1.5 ml-2">
-                  <Switch checked={isActive} onCheckedChange={() => toggleStrategy(s.key)} />
-                  <span className={cn("text-[9px] font-medium", isActive ? "text-emerald-400" : "text-muted-foreground")}>
-                    {isActive ? "ACTIVE" : "PAUSED"}
-                  </span>
-                </div>
+                <Badge variant="outline" className="ml-2 text-[9px] text-emerald-400 border-emerald-500/40">PAPER R&amp;D</Badge>
               </div>
 
               {/* Stats grid */}
@@ -159,17 +138,8 @@ export function StrategiesView() {
                   <Settings2 className="w-3 h-3 mr-1" />
                   {isEditing ? "Close" : "Configure"}
                 </Button>
-                <Button
-                  variant={isActive ? "outline" : "default"}
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => toggleStrategy(s.key)}
-                >
-                  {isActive ? <Pause className="w-3 h-3 mr-1" /> : <Play className="w-3 h-3 mr-1" />}
-                  {isActive ? "Pause" : "Activate"}
-                </Button>
                 <div className="flex-1" />
-                <Badge variant="outline" className="text-[9px]">{s.direction}</Badge>
+                <Badge variant="outline" className="text-[9px]">REGIME GATED · {s.direction}</Badge>
               </div>
             </Card>
           );
