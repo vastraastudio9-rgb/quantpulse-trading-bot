@@ -26,11 +26,12 @@ from zoneinfo import ZoneInfo
 
 from market_data import INSTRUMENTS, get_live_quote, generate_history
 from strategies import STRATEGIES, generate_signal
-from regime import classify_full_regime, route_strategies, RegimeState, StrategyRouting
+from regime import classify_full_regime, route_strategies, iv_rank, RegimeState, StrategyRouting
 from execution_engine import get_execution_engine
 from risk_engine import get_portfolio_engine
 from observability import logger, metrics
 from research_optimizer import load_policy
+from shadow_lab import get_shadow_lab
 import brokers.telegram_bot as telegram_bot
 
 
@@ -42,6 +43,14 @@ def select_policy_candidates(candidates: List[str], policy: Dict, symbol: str, t
     if trading_mode == "PAPER":
         return list(candidates), "PAPER_RND"
     return [], "LIVE_POLICY_BLOCKED"
+
+
+def apply_strategy_entry_gates(candidates: List[str], current_iv_rank: float) -> List[str]:
+    """Apply strategy-specific evidence gates after regime routing."""
+    return [
+        candidate for candidate in candidates
+        if candidate != "VRP_HARVEST" or current_iv_rank >= 70
+    ]
 
 
 @dataclass
@@ -62,6 +71,9 @@ class BotConfig:
     send_telegram_alerts: bool = True
     # Avoid repeating the same qualifying paper signal every scan.
     signal_alert_cooldown_minutes: int = 15
+    # Evaluate every strategy in an isolated, non-promotable paper laboratory.
+    shadow_lab_enabled: bool = True
+    shadow_scan_interval_seconds: int = 300
     # Strategies to skip (blacklist)
     strategy_blacklist: Set[str] = field(default_factory=set)
     # Paper mode (always True in autonomous — live requires human approval)
@@ -102,6 +114,8 @@ class AutoTradingBot:
         self._signal_alert_times: Dict[str, float] = {}
         self._signal_alert_count = 0
         self._last_signal_alert: Optional[Dict] = None
+        self._last_shadow_scan_monotonic = 0.0
+        self._latest_regimes: Dict[str, Dict] = {}
 
     def _notify_paper_signal(self, signal: Dict, regime: str, execution_scope: str) -> Dict:
         """Deliver valid PAPER signals independently of position acceptance."""
@@ -226,6 +240,35 @@ class AutoTradingBot:
                     "symbol": symbol, "action": "NO_SIGNAL", "reason": "No qualifying signal generated",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
+        self._run_shadow_cycle()
+
+    def _run_shadow_cycle(self) -> None:
+        """Observe every strategy without calling broker or execution modules."""
+        if not self.config.shadow_lab_enabled:
+            return
+        now = time.monotonic()
+        if now - self._last_shadow_scan_monotonic < max(30, self.config.shadow_scan_interval_seconds):
+            return
+        self._last_shadow_scan_monotonic = now
+        lab = get_shadow_lab()
+        for symbol in list(dict.fromkeys(self.config.symbols)):
+            context = self._latest_regimes.get(symbol)
+            if not context:
+                continue
+            instrument = INSTRUMENTS.get(symbol, {})
+            for strategy_key in STRATEGIES:
+                try:
+                    signal = generate_signal(strategy_key, symbol)
+                    if signal:
+                        lab.observe(
+                            signal,
+                            context["regime"],
+                            strategy_key in context["recommended"],
+                            int(instrument.get("lot_size", 1)),
+                            float(instrument.get("tick_size", .01)),
+                        )
+                except Exception as exc:
+                    logger.error(f"Shadow lab observation failed for {strategy_key}/{symbol}: {exc}")
 
     def _scan_symbol(self, symbol: str, risk_engine) -> None:
         """Classify and report one symbol, then request a paper position if risk allows."""
@@ -237,6 +280,10 @@ class AutoTradingBot:
                 return
             regime_state = classify_full_regime(bars)
             routing = route_strategies(regime_state)
+            self._latest_regimes[symbol] = {
+                "regime": regime_state.composite_regime,
+                "recommended": list(routing.recommended_strategies),
+            }
         except Exception as e:
             logger.error(f"Auto bot: regime classification failed for {symbol}: {e}")
             return
@@ -257,6 +304,7 @@ class AutoTradingBot:
             s for s in routing.recommended_strategies
             if s not in self.config.strategy_blacklist and s in STRATEGIES
         ]
+        candidates = apply_strategy_entry_gates(candidates, iv_rank(bars))
         policy = load_policy()
         from trading_mode import get_trading_mode
         candidates, execution_scope = select_policy_candidates(
@@ -431,6 +479,9 @@ class AutoTradingBot:
             "use_regime_filter": self.config.use_regime_filter,
             "send_telegram_alerts": self.config.send_telegram_alerts,
             "signal_alert_cooldown_minutes": self.config.signal_alert_cooldown_minutes,
+            "shadow_lab_enabled": self.config.shadow_lab_enabled,
+            "shadow_scan_interval_seconds": self.config.shadow_scan_interval_seconds,
+            "shadow_lab": get_shadow_lab().status(),
             "strategy_blacklist": list(self.config.strategy_blacklist),
             "stats": {
                 "scans_total": self._scan_count,

@@ -99,6 +99,18 @@ interface ReleaseStatus {
   preflight: { safe_to_restart: boolean; blockers: string[] };
 }
 
+interface ShadowLabStatus {
+  status: string;
+  observations: number;
+  open_positions: number;
+  closed_trades: number;
+  by_strategy: Record<string, { closed: number; open: number; win_rate: number; pnl: number; compatible_trades: number; counterfactual_trades: number }>;
+  last_cycle: string | null;
+  limitations: string[];
+  paper_only: boolean;
+  live_eligible: boolean;
+}
+
 export function JarvisView() {
   const [data, setData] = useState<JarvisObs | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,6 +118,7 @@ export function JarvisView() {
   const [activatingKill, setActivatingKill] = useState(false);
   const [autonomy, setAutonomy] = useState<AutonomyStatus | null>(null);
   const [release, setRelease] = useState<ReleaseStatus | null>(null);
+  const [shadowLab, setShadowLab] = useState<ShadowLabStatus | null>(null);
   const [autonomyBusy, setAutonomyBusy] = useState(false);
   const [rndBusy, setRndBusy] = useState(false);
   const [rndResult, setRndResult] = useState<{ status: string; quality?: { score: number; rows: number }; backtest?: { metrics?: { trades: number; return_pct: number; max_drawdown_pct: number } } } | null>(null);
@@ -113,16 +126,18 @@ export function JarvisView() {
 
   const loadData = async () => {
     try {
-      const [res, autonomyRes, releaseRes] = await Promise.all([
+      const [res, autonomyRes, releaseRes, shadowRes] = await Promise.all([
         fetch("/api/jarvis/observability?XTransformPort=3030"),
         fetch("/api/jarvis/autonomy/status?XTransformPort=3030"),
         fetch("/api/jarvis/release-status?XTransformPort=3030"),
+        fetch("/api/jarvis/shadow-lab?XTransformPort=3030"),
       ]);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
       setData(d);
       if (autonomyRes.ok) setAutonomy(await autonomyRes.json());
       if (releaseRes.ok) setRelease(await releaseRes.json());
+      if (shadowRes.ok) setShadowLab(await shadowRes.json());
       setLoading(false);
     } catch (e: any) {
       setLoading(false);
@@ -407,18 +422,27 @@ export function JarvisView() {
       {autonomy && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <Card className="p-4">
-            <h3 className="text-sm font-semibold mb-3">Strategy Governance</h3>
+            <h3 className="text-sm font-semibold">Strategy Governance</h3>
+            <p className="mb-3 text-[10px] text-muted-foreground">Actual promotion journal · shadow learning stays paper-only</p>
             <div className="space-y-1.5 max-h-56 overflow-y-auto">
               {Object.entries(autonomy.governance.strategies).map(([key, item]) => (
                 <div key={key} className="flex items-center justify-between gap-2 text-xs">
                   <span className="truncate">{key.replace(/_/g, " ")}</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted-foreground">{item.trades} trades</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {item.trades} actual · {shadowLab?.by_strategy[key]?.closed ?? 0} shadow
+                      {(shadowLab?.by_strategy[key]?.open ?? 0) > 0 ? ` · ${shadowLab?.by_strategy[key]?.open} open` : ""}
+                    </span>
                     <Badge variant="outline" className={cn("text-[9px]", item.state === "QUARANTINED" ? "text-red-400 border-red-500/40" : item.state === "PAPER_VALIDATED" ? "text-emerald-400 border-emerald-500/40" : "text-amber-400 border-amber-500/40")}>{item.state.replace(/_/g, " ")}</Badge>
                   </div>
                 </div>
               ))}
             </div>
+            {shadowLab && (
+              <p className="mt-2 text-[10px] text-cyan-300">
+                Shadow lab: {shadowLab.closed_trades} closed · {shadowLab.open_positions} open · model marks only · never live eligible
+              </p>
+            )}
           </Card>
           <Card className="p-4">
             <h3 className="text-sm font-semibold mb-3">Recent Autonomous Decisions</h3>

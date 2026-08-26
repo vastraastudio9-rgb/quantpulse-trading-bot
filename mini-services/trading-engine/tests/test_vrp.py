@@ -10,7 +10,8 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from strategies import STRATEGIES, generate_signal
-from regime import iv_rank, iv_percentile, realized_volatility, volatility_risk_premium
+from regime import iv_rank, iv_percentile, realized_volatility, volatility_risk_premium, REGIME_STRATEGY_MAP
+from auto_bot import apply_strategy_entry_gates
 from market_data import generate_history
 
 
@@ -139,6 +140,12 @@ class TestVolatilityRiskPremium:
 
 
 class TestVRPHarvestStrategy:
+    def test_vrp_is_routed_only_with_high_iv_entry_gate(self):
+        assert "VRP_HARVEST" in REGIME_STRATEGY_MAP["RANGE_BOUND_TIGHT"]
+        assert "VRP_HARVEST" in REGIME_STRATEGY_MAP["RANGE_BOUND_WIDE"]
+        assert "VRP_HARVEST" not in apply_strategy_entry_gates(["VRP_HARVEST"], 69.9)
+        assert "VRP_HARVEST" in apply_strategy_entry_gates(["VRP_HARVEST"], 70)
+
     def test_strategy_definition_exists(self):
         assert "VRP_HARVEST" in STRATEGIES
         strat = STRATEGIES["VRP_HARVEST"]

@@ -68,6 +68,7 @@ from intraday_research import research_intraday_strategies
 from paper_signal_journal import get_paper_signal_journal
 from release_manager import release_status
 from jarvis_assistant import briefing
+from shadow_lab import get_shadow_lab
 
 
 @asynccontextmanager
@@ -318,6 +319,12 @@ def create_signal(req: SignalRequest):
 def paper_signals(limit: int = Query(50, ge=1, le=500)):
     items = get_paper_signal_journal().recent(limit)
     return {"items": items, "count": len(items), "paper_only": True, "live_eligible": False}
+
+
+@app.get("/api/jarvis/shadow-lab")
+def shadow_lab_status():
+    """Return isolated all-strategy paper observations; never promotion evidence."""
+    return get_shadow_lab().status()
 
 @app.get("/api/positions")
 def get_positions():
@@ -1456,6 +1463,8 @@ class AutoBotConfigRequest(BaseModel):
     scan_interval_seconds: Optional[int] = None
     send_telegram_alerts: Optional[bool] = None
     signal_alert_cooldown_minutes: Optional[int] = None
+    shadow_lab_enabled: Optional[bool] = None
+    shadow_scan_interval_seconds: Optional[int] = None
     strategy_blacklist: Optional[List[str]] = None
 
 
@@ -1475,6 +1484,10 @@ def auto_bot_configure(req: AutoBotConfigRequest):
         bot.config.send_telegram_alerts = req.send_telegram_alerts
     if req.signal_alert_cooldown_minutes is not None:
         bot.config.signal_alert_cooldown_minutes = max(1, min(240, req.signal_alert_cooldown_minutes))
+    if req.shadow_lab_enabled is not None:
+        bot.config.shadow_lab_enabled = req.shadow_lab_enabled
+    if req.shadow_scan_interval_seconds is not None:
+        bot.config.shadow_scan_interval_seconds = max(30, min(3600, req.shadow_scan_interval_seconds))
     if req.strategy_blacklist is not None:
         bot.config.strategy_blacklist = set(req.strategy_blacklist)
     return {"success": True, "config": bot.status()}
