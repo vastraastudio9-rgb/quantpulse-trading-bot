@@ -16,6 +16,7 @@ import { LeaderboardView } from "@/components/trading/leaderboard-view";
 import { SettingsView } from "@/components/trading/settings-view";
 import { JarvisView } from "@/components/trading/jarvis-view";
 import { JarvisResultsView } from "@/components/trading/jarvis-results-view";
+import { JarvisVoiceAssistant } from "@/components/trading/jarvis-voice-assistant";
 
 const VIEW_META: Record<NavView, { title: string; subtitle: string }> = {
   dashboard: { title: "Dashboard", subtitle: "Multi-asset trading overview • Indian F&O + MCX + Forex" },
@@ -60,7 +61,12 @@ export default function Home() {
         />
 
         <main className="flex-1 p-4 lg:p-6 max-w-[1600px] mx-auto w-full">
-          {view === "dashboard" && <DashboardView />}
+          {view === "dashboard" && (
+            <div className="space-y-4">
+              <JarvisVoiceAssistant />
+              <DashboardView />
+            </div>
+          )}
           {view === "signals" && <SignalsView />}
           {view === "backtest" && <BacktestView />}
           {view === "validation" && <ValidationView />}

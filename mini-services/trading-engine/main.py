@@ -67,6 +67,7 @@ from kite_rnd_pipeline import run_nifty_orb_pipeline
 from intraday_research import research_intraday_strategies
 from paper_signal_journal import get_paper_signal_journal
 from release_manager import release_status
+from jarvis_assistant import briefing
 
 
 @asynccontextmanager
@@ -162,6 +163,10 @@ class SignalRequest(BaseModel):
     strategy_key: str = "STRADDLE_SELL"
     symbol: str = "NIFTY"
 
+
+class JarvisChatRequest(BaseModel):
+    question: str = "What is happening in the whole system?"
+
 # ============ MOCK POSITIONS (paper trading) ============
 def _mock_positions() -> List[Dict]:
     """Generate realistic mock open positions for paper trading."""
@@ -232,6 +237,22 @@ def health():
 def jarvis_release_status():
     """Report the running commit and fail-closed restart readiness."""
     return release_status()
+
+
+@app.get("/api/jarvis/assistant/briefing")
+def jarvis_assistant_briefing():
+    """Grounded whole-system PAPER briefing for dashboard and speech output."""
+    return briefing()
+
+
+@app.post("/api/jarvis/assistant/chat")
+def jarvis_assistant_chat(req: JarvisChatRequest):
+    question = req.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+    if len(question) > 500:
+        raise HTTPException(status_code=400, detail="Question is too long")
+    return briefing(question)
 
 @app.get("/api/instruments")
 def list_instruments():
