@@ -18,3 +18,4 @@ logs/
 AGENTS.md
 CLAUDE.md
 mini-services/trading-engine/data/
+/.tmp-engine-validation/
