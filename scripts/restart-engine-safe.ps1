@@ -39,7 +39,12 @@ $listener = Get-NetTCPConnection -LocalPort 3030 -State Listen | Select-Object -
 if (-not $listener) { throw "No trading engine is listening on port 3030." }
 $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)"
 $expected = [System.IO.Path]::GetFullPath($mainPath)
-if (-not $process.CommandLine -or -not $process.CommandLine.Contains($expected)) {
+$expectedRuntime = [System.IO.Path]::GetFullPath($PythonPath)
+$actualRuntime = if ($process.ExecutablePath) { [System.IO.Path]::GetFullPath($process.ExecutablePath) } else { "" }
+$absoluteLaunch = $process.CommandLine -and $process.CommandLine.Contains($expected)
+$legacyRelativeLaunch = $process.CommandLine -and $process.CommandLine -match '(?:^|\s|\")main\.py(?:\s|$|\")' -and `
+    $actualRuntime.Equals($expectedRuntime, [System.StringComparison]::OrdinalIgnoreCase)
+if (-not ($absoluteLaunch -or $legacyRelativeLaunch)) {
     throw "Port 3030 process does not match the expected workspace engine."
 }
 
