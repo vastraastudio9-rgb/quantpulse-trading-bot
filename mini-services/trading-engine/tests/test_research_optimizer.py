@@ -30,7 +30,7 @@ def test_research_policy_is_always_paper_only(tmp_path):
     # The source depends on whether the local normalized store has approved
     # real candles. The safety invariant must hold for either evidence path.
     assert restored["data_source"] == policy["data_source"]
-    assert restored["evidence_grade"] in {"REAL_MARKET", "SYNTHETIC_ONLY"}
+    assert restored["evidence_grade"] in {"REAL_MARKET", "ENGINEERING_ONLY"}
     assert policy["candidates_tested"] == 1
 
 

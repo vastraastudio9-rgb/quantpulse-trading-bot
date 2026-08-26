@@ -454,6 +454,42 @@ class ZerodhaTestRequest(BaseModel):
     access_token: Optional[str] = None
 
 
+class ZerodhaAuthStartRequest(BaseModel):
+    api_key: str
+    api_secret: str
+
+
+class ZerodhaAuthCompleteRequest(BaseModel):
+    request_token: str
+
+
+@app.post("/api/brokers/zerodha/auth/start")
+def start_zerodha_auth(req: ZerodhaAuthStartRequest):
+    """Create the official Kite login URL; secrets remain in engine memory only."""
+    try:
+        return zerodha_broker.begin_auth(req.api_key, req.api_secret)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/brokers/zerodha/auth/complete")
+def complete_zerodha_auth(req: ZerodhaAuthCompleteRequest):
+    """Exchange Kite's one-time request token and verify the new session."""
+    try:
+        zerodha_broker.complete_auth(req.request_token)
+        result = zerodha_broker.test_connection()
+        return {
+            "connected": result.get("connected", False),
+            "message": result.get("message", ""),
+            "user": result.get("user"),
+            "storage": "PROCESS_MEMORY_ONLY",
+        }
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Kite authentication failed: {exc}")
+
+
 @app.post("/api/brokers/zerodha/test")
 def test_zerodha(req: ZerodhaTestRequest):
     """Test Zerodha Kite connection with provided credentials."""

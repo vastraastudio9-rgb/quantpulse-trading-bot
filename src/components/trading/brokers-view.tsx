@@ -202,6 +202,7 @@ const BROKER_FIELDS: Record<string, { key: string; label: string; placeholder: s
   ZERODHA: [
     { key: "api_key", label: "API Key", placeholder: "Kite API key", password: true },
     { key: "api_secret", label: "API Secret", placeholder: "Kite API secret", password: true },
+    { key: "request_token", label: "Request Token (from redirect URL)", placeholder: "Single-use request_token", password: true },
     { key: "access_token", label: "Access Token (refreshed daily)", placeholder: "Auto-generated after auth flow", password: true },
   ],
   MT5: [
@@ -277,6 +278,53 @@ function BrokerCard({ broker, onTest }: { broker: BrokerStatus; onTest: () => vo
       }
     } catch (e: any) {
       toast({ title: "Test failed", description: e.message, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const startKiteLogin = async () => {
+    if (!creds.api_key || !creds.api_secret) {
+      toast({ title: "Kite credentials required", description: "Enter API key and API secret first.", variant: "destructive" });
+      return;
+    }
+    setTesting(true);
+    try {
+      const res = await fetch("/api/brokers/zerodha/auth/start?XTransformPort=3030", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: creds.api_key, api_secret: creds.api_secret }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Unable to start Kite login");
+      window.open(data.login_url, "_blank", "noopener,noreferrer");
+      toast({ title: "Kite login opened", description: "After login, copy request_token from the redirect URL and paste it here." });
+    } catch (e: any) {
+      toast({ title: "Kite login failed", description: e.message, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const completeKiteLogin = async () => {
+    if (!creds.request_token) {
+      toast({ title: "Request token required", description: "Paste request_token from the Kite redirect URL.", variant: "destructive" });
+      return;
+    }
+    setTesting(true);
+    try {
+      const res = await fetch("/api/brokers/zerodha/auth/complete?XTransformPort=3030", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request_token: creds.request_token }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.connected) throw new Error(data.detail || data.message || "Kite session failed");
+      setCreds({});
+      toast({ title: "Kite connected", description: "Today's access token is active in memory only." });
+      onTest();
+    } catch (e: any) {
+      toast({ title: "Kite authentication failed", description: e.message, variant: "destructive" });
     } finally {
       setTesting(false);
     }
@@ -366,6 +414,18 @@ function BrokerCard({ broker, onTest }: { broker: BrokerStatus; onTest: () => vo
 
       {/* Actions */}
       <div className="flex items-center gap-2">
+        {broker.type === "ZERODHA" && (
+          <>
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={startKiteLogin} disabled={testing}>
+              <ExternalLink className="w-3 h-3 mr-1" />
+              Open Kite Login
+            </Button>
+            <Button size="sm" className="h-8 text-xs" onClick={completeKiteLogin} disabled={testing}>
+              <KeyRound className="w-3 h-3 mr-1" />
+              Complete Login
+            </Button>
+          </>
+        )}
         <Button size="sm" className="h-8 text-xs" onClick={handleTest} disabled={testing}>
           {testing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Plug className="w-3 h-3 mr-1" />}
           {testing ? "Testing..." : "Test Connection"}

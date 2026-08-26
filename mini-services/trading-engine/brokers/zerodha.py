@@ -49,6 +49,55 @@ def is_configured() -> bool:
     return bool(KITE_API_KEY and KITE_API_SECRET and KITE_ACCESS_TOKEN and KITE_AVAILABLE)
 
 
+def configure_credentials(api_key: str, api_secret: str, access_token: str = "") -> None:
+    """Keep Kite credentials in process memory only and reset cached clients."""
+    global KITE_API_KEY, KITE_API_SECRET, KITE_ACCESS_TOKEN, _kite_client, _kite_ticker
+    KITE_API_KEY = (api_key or "").strip()
+    KITE_API_SECRET = (api_secret or "").strip()
+    KITE_ACCESS_TOKEN = (access_token or "").strip()
+    os.environ["KITE_API_KEY"] = KITE_API_KEY
+    os.environ["KITE_API_SECRET"] = KITE_API_SECRET
+    if KITE_ACCESS_TOKEN:
+        os.environ["KITE_ACCESS_TOKEN"] = KITE_ACCESS_TOKEN
+    else:
+        os.environ.pop("KITE_ACCESS_TOKEN", None)
+    _kite_client = None
+    _kite_ticker = None
+    _instrument_tokens.clear()
+
+
+def begin_auth(api_key: str, api_secret: str) -> Dict:
+    """Prepare the daily Kite browser login without writing credentials to disk."""
+    if not KITE_AVAILABLE:
+        raise RuntimeError("kiteconnect package is not installed")
+    if not api_key or not api_secret:
+        raise ValueError("API key and API secret are required")
+    configure_credentials(api_key, api_secret)
+    client = KiteConnect(api_key=KITE_API_KEY)
+    return {
+        "login_url": client.login_url(),
+        "storage": "PROCESS_MEMORY_ONLY",
+        "next_step": "Login to Kite, then paste the request_token from the redirect URL.",
+    }
+
+
+def complete_auth(request_token: str) -> Dict:
+    """Exchange a single-use request token for today's in-memory access token."""
+    if not KITE_AVAILABLE:
+        raise RuntimeError("kiteconnect package is not installed")
+    if not KITE_API_KEY or not KITE_API_SECRET:
+        raise ValueError("Start Kite login with API key and API secret first")
+    if not request_token:
+        raise ValueError("request_token is required")
+    client = KiteConnect(api_key=KITE_API_KEY)
+    session = client.generate_session(request_token.strip(), api_secret=KITE_API_SECRET)
+    access_token = str(session.get("access_token", ""))
+    if not access_token:
+        raise RuntimeError("Kite did not return an access token")
+    configure_credentials(KITE_API_KEY, KITE_API_SECRET, access_token)
+    return {"authenticated": True, "storage": "PROCESS_MEMORY_ONLY"}
+
+
 def get_client() -> Optional[Any]:
     """Get or create KiteConnect client. Returns None if not configured."""
     global _kite_client
