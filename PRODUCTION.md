@@ -4,6 +4,11 @@ QuantPulse is configured for **paper trading only**. Do not enable live order
 routing until a broker-specific execution review and supervised paper-trading
 period are complete.
 
+The same web app contains guarded manual live routing for Zerodha and FYERS,
+but `ALLOW_LIVE_TRADING` defaults to false. Autonomous JARVIS is always paper
+only. Live activation also requires `REQUIRE_OPERATOR_TOKEN=true`, a strong
+`OPERATOR_TOKEN`, a connected broker, and explicit confirmation in the UI.
+
 ## Required server configuration
 
 1. Copy `.env.example` to `.env` and fill in the hostname and integrations.

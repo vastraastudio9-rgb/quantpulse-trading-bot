@@ -8,7 +8,9 @@
 
 	@engine path /health /metrics /api/*
 	handle @engine {
-		reverse_proxy 127.0.0.1:3030
+		reverse_proxy 127.0.0.1:3030 {
+			header_up X-Operator-Token {$OPERATOR_TOKEN}
+		}
 	}
 
 	handle {

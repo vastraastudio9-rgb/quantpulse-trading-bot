@@ -38,6 +38,7 @@ export function BrokersView() {
   const [telegram, setTelegram] = useState<TelegramStatus>({ is_configured: false, message: "" });
   const [loading, setLoading] = useState(true);
   const [paperMode, setPaperMode] = useState(true);
+  const [modeBusy, setModeBusy] = useState(false);
   const { toast } = useToast();
 
   const loadStatus = async () => {
@@ -45,8 +46,8 @@ export function BrokersView() {
       const r = await tradingApi.getBrokersStatus();
       setBrokers(r.brokers);
       setTelegram(r.telegram);
-      const anyConnected = r.brokers.some((b) => b.is_connected);
-      setPaperMode(!anyConnected);
+      const mode = await tradingApi.getTradingMode();
+      setPaperMode(mode.mode === "PAPER");
     } catch (e: any) {
       toast({ title: "Failed to load brokers", description: e.message, variant: "destructive" });
     } finally {
@@ -88,13 +89,29 @@ export function BrokersView() {
             </span>
             <Switch
               checked={!paperMode}
-              onCheckedChange={(v) => {
-                setPaperMode(!v);
-                toast({
-                  title: v ? "LIVE mode enabled" : "Paper mode enabled",
-                  description: v ? "Real orders will be placed when broker is connected. Use with caution." : "Trades will be simulated.",
-                  variant: v ? "destructive" : "default",
-                });
+              disabled={modeBusy}
+              onCheckedChange={async (v) => {
+                setModeBusy(true);
+                try {
+                  if (!v) {
+                    await tradingApi.setTradingMode("PAPER");
+                    setPaperMode(true);
+                    toast({ title: "Paper mode enabled", description: "All strategy execution is simulated." });
+                    return;
+                  }
+                  const connected = brokers.find((b) => b.is_connected && ["zerodha", "fyers"].includes(b.id));
+                  if (!connected) throw new Error("Connect Zerodha or FYERS successfully before requesting LIVE mode.");
+                  const confirmation = window.prompt('Type exactly "ENABLE LIVE TRADING" to request guarded live mode.');
+                  if (confirmation !== "ENABLE LIVE TRADING") throw new Error("Live-mode confirmation was cancelled or did not match.");
+                  await tradingApi.setTradingMode("LIVE", connected.type, confirmation);
+                  setPaperMode(false);
+                  toast({ title: "Guarded LIVE mode enabled", description: `Manual live orders will route through ${connected.name}. Autonomous JARVIS remains paper-only.`, variant: "destructive" });
+                } catch (e: any) {
+                  setPaperMode(true);
+                  toast({ title: "LIVE mode blocked", description: e.message, variant: "destructive" });
+                } finally {
+                  setModeBusy(false);
+                }
               }}
             />
           </div>

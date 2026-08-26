@@ -29,7 +29,7 @@ except ImportError:
 ANGEL_API_KEY = os.environ.get("ANGEL_API_KEY", "")
 ANGEL_CLIENT_CODE = os.environ.get("ANGEL_CLIENT_CODE", "")
 ANGEL_PASSWORD = os.environ.get("ANGEL_PASSWORD", "")
-ANGEL_TOTP_SECRET = os.environ.get("ANGGEL_TOTP_SECRET", "")
+ANGEL_TOTP_SECRET = os.environ.get("ANGEL_TOTP_SECRET", "")
 ANGEL_ACCESS_TOKEN = os.environ.get("ANGEL_ACCESS_TOKEN", "")
 
 _angel_client: Optional[Any] = None

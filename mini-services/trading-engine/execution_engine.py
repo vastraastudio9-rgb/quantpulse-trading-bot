@@ -139,6 +139,7 @@ class PaperExecutionEngine:
                 take_profit=take_profit,
                 unrealized_pnl=0,
                 opened_at=datetime.now(timezone.utc).isoformat(),
+                legs=legs,
             )
             
             # Pre-trade risk check

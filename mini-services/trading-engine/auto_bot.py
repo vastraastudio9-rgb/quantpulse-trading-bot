@@ -22,6 +22,7 @@ import random
 from typing import Dict, List, Optional, Set
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo
 
 from market_data import INSTRUMENTS, get_live_quote, generate_history
 from strategies import STRATEGIES, generate_signal
@@ -126,7 +127,7 @@ class AutoTradingBot:
 
     def _check_daily_reset(self):
         """Reset daily trade counter at start of new day."""
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
         if self._last_reset_date is None or today > self._last_reset_date:
             self._trades_today = 0
             self._last_reset_date = today

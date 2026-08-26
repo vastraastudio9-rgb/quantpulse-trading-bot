@@ -17,7 +17,11 @@ import threading
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, date
+from zoneinfo import ZoneInfo
 import numpy as np
+import json
+import os
+from pathlib import Path
 
 
 @dataclass
@@ -41,6 +45,7 @@ class Position:
     take_profit: float = 0
     unrealized_pnl: float = 0
     opened_at: str = ""
+    legs: List[Dict] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         return {
@@ -59,6 +64,7 @@ class Position:
             "take_profit": round(self.take_profit, 2),
             "unrealized_pnl": round(self.unrealized_pnl, 2),
             "opened_at": self.opened_at,
+            "legs": self.legs,
         }
 
 
@@ -86,7 +92,7 @@ class RiskLimits:
 class PortfolioRiskEngine:
     """Centralized risk manager. Singleton — one instance per trading engine."""
 
-    def __init__(self, initial_capital: float = 100000, limits: RiskLimits = None):
+    def __init__(self, initial_capital: float = 100000, limits: RiskLimits = None, persist_path: Optional[Path] = None):
         self.initial_capital = initial_capital
         self.current_capital = initial_capital
         self.limits = limits or RiskLimits(max_daily_loss_amount=initial_capital * 0.03)
@@ -97,11 +103,47 @@ class PortfolioRiskEngine:
         self._lock = threading.RLock()  # thread-safe for order callbacks
         self._last_reset_date: Optional[date] = None
         self._daily_loss_lock = False
+        self._persist_path = persist_path
+        self._load_state()
         self._check_daily_reset()
+
+    def _load_state(self) -> None:
+        if not self._persist_path:
+            return
+        try:
+            raw = json.loads(self._persist_path.read_text(encoding="utf-8"))
+            self.current_capital = float(raw.get("current_capital", self.initial_capital))
+            self.realized_pnl_today = float(raw.get("realized_pnl_today", 0))
+            self.realized_pnl_total = float(raw.get("realized_pnl_total", 0))
+            self.trade_history = raw.get("trade_history", [])
+            self.positions = [Position(**p) for p in raw.get("positions", [])]
+            saved_date = raw.get("last_reset_date")
+            self._last_reset_date = date.fromisoformat(saved_date) if saved_date else None
+            self._daily_loss_lock = bool(raw.get("daily_loss_lock", False))
+            self.limits.kill_switch = bool(raw.get("kill_switch", False))
+            self.limits.kill_switch_reason = raw.get("kill_switch_reason", "")
+        except (FileNotFoundError, ValueError, TypeError, OSError):
+            pass
+
+    def _save_state(self) -> None:
+        if not self._persist_path:
+            return
+        self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "current_capital": self.current_capital, "realized_pnl_today": self.realized_pnl_today,
+            "realized_pnl_total": self.realized_pnl_total, "trade_history": self.trade_history,
+            "positions": [p.to_dict() for p in self.positions],
+            "last_reset_date": self._last_reset_date.isoformat() if self._last_reset_date else None,
+            "daily_loss_lock": self._daily_loss_lock, "kill_switch": self.limits.kill_switch,
+            "kill_switch_reason": self.limits.kill_switch_reason,
+        }
+        temp = self._persist_path.with_suffix(".tmp")
+        temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temp.replace(self._persist_path)
 
     def _check_daily_reset(self):
         """Reset daily P&L at start of new trading day."""
-        today = date.today()
+        today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
         if self._last_reset_date is None or today > self._last_reset_date:
             self.realized_pnl_today = 0
             self._daily_loss_lock = False
@@ -121,6 +163,7 @@ class PortfolioRiskEngine:
 
             # All checks passed → add position
             self.positions.append(pos)
+            self._save_state()
             return True, "Position added"
 
     def _pre_trade_checks(self, new_pos: Position) -> Dict[str, Tuple[bool, str]]:
@@ -224,6 +267,7 @@ class PortfolioRiskEngine:
             }
             self.trade_history.append(trade_record)
             self.positions.remove(pos)
+            self._save_state()
 
             # Check if daily loss limit hit after this trade
             daily_loss = abs(min(self.realized_pnl_today, 0))
@@ -309,23 +353,27 @@ class PortfolioRiskEngine:
                         current = max(current, 0.05)
                     except Exception:
                         current = pos.entry_price  # fallback: no change
-                elif cfg and pos.option_type == "MULTI":
-                    # Multi-leg: approximate current premium using spot move + theta decay
-                    # This is a simplification — full BS revaluation of each leg would need
-                    # the leg details stored on the Position (future enhancement)
-                    spot_move_pct = (current_spot - pos.spot) / pos.spot if pos.spot > 0 else 0
-                    # Assume 3 days held (avg), theta decay ~3% per day for weekly options
-                    theta_decay = 0.03 * 3  # ~9% decay
-                    if pos.side == "SHORT":
-                        # Short premium benefits from theta decay, loses on spot move (gamma)
-                        # For Iron Condor: net premium ~40, gamma ~4x spot_move
-                        gamma_impact = abs(spot_move_pct) * 4 * pos.entry_price
-                        current = pos.entry_price - (pos.entry_price * theta_decay) + gamma_impact * 0.5
-                    else:
-                        # Long premium loses theta, gains on spot move
-                        gamma_impact = abs(spot_move_pct) * 4 * pos.entry_price
-                        current = pos.entry_price + gamma_impact - (pos.entry_price * theta_decay)
-                    current = max(current, 0.05)
+                elif cfg and pos.option_type == "MULTI" and pos.legs:
+                    try:
+                        opened = datetime.fromisoformat(pos.opened_at)
+                        held_days = max(0.0, (datetime.now(timezone.utc) - opened).total_seconds() / 86400)
+                        t_now = max((5.0 - held_days) / 252, 1 / (252 * 24))
+                        t_entry = 5 / 252
+                        sigma, rate = cfg["volatility"], 0.07
+
+                        def net_value(spot_value: float, t_value: float) -> float:
+                            buys = sells = 0.0
+                            for leg in pos.legs:
+                                value = option_price(spot_value, float(leg["strike"]), t_value, rate, sigma, leg["type"])
+                                if leg["action"] == "BUY": buys += value
+                                else: sells += value
+                            return (sells - buys) if pos.side == "SHORT" else (buys - sells)
+
+                        initial_model = net_value(pos.spot, t_entry)
+                        scale = pos.entry_price / initial_model if initial_model > 0 else 1.0
+                        current = max(net_value(current_spot, t_now) * scale, 0.05)
+                    except Exception:
+                        current = pos.entry_price
                 else:
                     # For non-option positions (futures/spot), use spot directly
                     current = current_spot
@@ -337,6 +385,7 @@ class PortfolioRiskEngine:
                     pos.unrealized_pnl = (current - pos.entry_price) * pos.quantity
                 else:
                     pos.unrealized_pnl = (pos.entry_price - current) * pos.quantity
+                self._save_state()
 
                 # Check SL (premium-based)
                 if pos.side == "LONG" and current <= pos.stop_loss:
@@ -380,6 +429,7 @@ class PortfolioRiskEngine:
         with self._lock:
             self.limits.kill_switch = True
             self.limits.kill_switch_reason = reason
+            self._save_state()
             return {
                 "activated": True,
                 "reason": reason,
@@ -393,6 +443,7 @@ class PortfolioRiskEngine:
         with self._lock:
             self.limits.kill_switch = False
             self.limits.kill_switch_reason = ""
+            self._save_state()
             return {"activated": False, "timestamp": datetime.now(timezone.utc).isoformat()}
 
     # ============ STATUS / OBSERVABILITY ============
@@ -500,5 +551,9 @@ def get_portfolio_engine(initial_capital: float = 100000) -> PortfolioRiskEngine
     """Get or create the singleton portfolio risk engine."""
     global _portfolio_engine
     if _portfolio_engine is None:
-        _portfolio_engine = PortfolioRiskEngine(initial_capital=initial_capital)
+        persist_path = None
+        if "PYTEST_CURRENT_TEST" not in os.environ:
+            data_dir = Path(os.getenv("ENGINE_DATA_DIR", Path(__file__).parent / "data"))
+            persist_path = data_dir / "risk-state.json"
+        _portfolio_engine = PortfolioRiskEngine(initial_capital=initial_capital, persist_path=persist_path)
     return _portfolio_engine

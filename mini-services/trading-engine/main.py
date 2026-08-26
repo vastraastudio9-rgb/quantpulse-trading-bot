@@ -46,6 +46,8 @@ from risk_engine import get_portfolio_engine
 from execution_engine import get_execution_engine
 from auto_bot import get_auto_bot, BotConfig
 from trade_journal import get_journal
+from trading_mode import get_trading_mode
+from live_execution import execute_live_legs
 
 app = FastAPI(
     title="Multi-Asset Trading Engine API",
@@ -85,6 +87,13 @@ async def log_requests_middleware(request, call_next):
             path=path,
         )
     
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and os.getenv("REQUIRE_OPERATOR_TOKEN", "false").lower() == "true":
+        expected = os.getenv("OPERATOR_TOKEN", "")
+        supplied = request.headers.get("X-Operator-Token", "")
+        if not expected or supplied != expected:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401, content={"detail": "Operator authorization required"})
+
     response = await call_next(request)
     
     duration_ms = (time.time() - start) * 1000
@@ -158,6 +167,24 @@ def _mock_positions() -> List[Dict]:
         })
     return positions
 
+
+def _actual_positions() -> List[Dict]:
+    """Return the authoritative paper-risk positions in dashboard shape."""
+    result = []
+    for pos in get_portfolio_engine().positions:
+        cfg = INSTRUMENTS.get(pos.symbol, {})
+        value = pos.entry_price * pos.quantity
+        result.append({
+            "id": pos.id, "instrument": pos.symbol, "exchange": cfg.get("exchange", ""),
+            "strategy": pos.strategy, "side": pos.side, "quantity": pos.quantity,
+            "lot_size": cfg.get("lot_size", pos.quantity), "lots": max(1, pos.quantity // max(1, cfg.get("lot_size", pos.quantity))),
+            "avg_price": pos.entry_price, "ltp": pos.current_price, "stop_loss": pos.stop_loss,
+            "target": pos.take_profit, "unrealized_pnl": pos.unrealized_pnl,
+            "unrealized_pnl_pct": round(pos.unrealized_pnl / value * 100, 2) if value else 0,
+            "opened_at": pos.opened_at, "status": "OPEN",
+        })
+    return result
+
 # ============ ENDPOINTS ============
 @app.get("/health")
 def health():
@@ -221,8 +248,8 @@ def create_signal(req: SignalRequest):
 
 @app.get("/api/positions")
 def get_positions():
-    """Get open paper trading positions."""
-    return _mock_positions()
+    """Get authoritative open paper-trading positions."""
+    return _actual_positions()
 
 @app.post("/api/backtest")
 def run_bt(req: BacktestRequest):
@@ -285,26 +312,20 @@ def dashboard():
     # Latest signals
     signals = generate_signals_feed(limit=8)
     
-    # Mock positions
-    positions = _mock_positions()
+    positions = _actual_positions()
     
     # Today P&L
     total_unrealized = sum(p["unrealized_pnl"] for p in positions)
-    total_realized = random.uniform(-2500, 4500)
+    risk_status = get_portfolio_engine().status()
+    total_realized = risk_status["pnl"]["realized_today"]
     today_pnl = total_unrealized + total_realized
     
-    # Equity curve (30 days)
-    equity_curve = []
-    base = 100000
-    for i in range(30):
-        eq = base * (1 + random.uniform(-0.02, 0.025) * (i / 5 + 1))
-        equity_curve.append({
-            "date": (datetime.now(timezone.utc) - timedelta(days=29 - i)).date().isoformat(),
-            "value": round(eq, 2),
-        })
+    equity_curve = [{"date": datetime.now(timezone.utc).date().isoformat(), "value": risk_status["capital"]["current"]}]
     
     # Stats
-    win_rate = random.uniform(58, 68)
+    history = get_portfolio_engine().trade_history
+    wins = sum(1 for trade in history if trade.get("pnl", 0) > 0)
+    win_rate = (wins / len(history) * 100) if history else 0
     active_signals = len([s for s in signals if s.get("status") == "ACTIVE"])
     
     return {
@@ -316,9 +337,9 @@ def dashboard():
             "open_positions": len(positions),
             "active_signals": active_signals,
             "win_rate_30d": round(win_rate, 1),
-            "total_trades_30d": random.randint(45, 65),
-            "capital_used": round(sum(p["avg_price"] * p["quantity"] * 0.15 for p in positions), 2),
-            "capital_available": round(100000 - sum(p["avg_price"] * p["quantity"] * 0.15 for p in positions), 2),
+            "total_trades_30d": len(history),
+            "capital_used": risk_status["capital"]["used"],
+            "capital_available": risk_status["capital"]["available"],
         },
         "quotes": quotes,
         "equity_curve": equity_curve,
@@ -334,7 +355,12 @@ def brokers_status():
     def _broker_status(broker_id, name, btype, broker_module, segments, default_msg):
         configured = broker_module.is_configured()
         test = broker_module.test_connection() if configured else None
-        pkg_installed = getattr(broker_module, f"{broker_id.upper().replace('_','')}_AVAILABLE", None) or getattr(broker_module, "KITE_AVAILABLE", None) or getattr(broker_module, "MT5_AVAILABLE", None) or getattr(broker_module, "ANGEL_AVAILABLE", None) or getattr(broker_module, "FYERS_AVAILABLE", None) or getattr(broker_module, "DHAN_AVAILABLE", None) or getattr(broker_module, "UPSTOX_AVAILABLE", None) or getattr(broker_module, "IBKR_AVAILABLE", None) or getattr(broker_module, "OANDA_AVAILABLE", None) or True
+        availability_names = {
+            "zerodha": "KITE_AVAILABLE", "mt5": "MT5_AVAILABLE", "angel_one": "ANGEL_AVAILABLE",
+            "fyers": "FYERS_AVAILABLE", "dhan": "DHAN_AVAILABLE", "upstox": "UPSTOX_AVAILABLE",
+            "ibkr": "IBKR_AVAILABLE", "oanda": "OANDA_AVAILABLE",
+        }
+        pkg_installed = bool(getattr(broker_module, availability_names[broker_id], False))
         return {
             "id": broker_id,
             "name": name,
@@ -918,21 +944,20 @@ def jarvis_observability():
     # Market regimes for all instruments
     regimes_resp = get_all_regimes()
     
-    # Portfolio (mock for now — would come from broker in production)
+    actual_risk = get_portfolio_engine().status()
     portfolio = {
-        "total_capital": 100000,
-        "available_capital": 87000,
-        "used_capital": 13000,
-        "open_positions": 3,
-        "today_pnl": random.uniform(-5000, 5000),
-        "today_pnl_pct": 0,
-        "unrealized_pnl": random.uniform(-3000, 3000),
-        "net_delta": random.uniform(-0.3, 0.3),
-        "net_theta": random.uniform(-50, 50),
-        "gross_exposure": 13000,
-        "net_exposure": random.uniform(-5000, 5000),
+        "total_capital": actual_risk["capital"]["current"],
+        "available_capital": actual_risk["capital"]["available"],
+        "used_capital": actual_risk["capital"]["used"],
+        "open_positions": actual_risk["exposure"]["positions"],
+        "today_pnl": actual_risk["pnl"]["total"],
+        "today_pnl_pct": round(actual_risk["pnl"]["total"] / actual_risk["capital"]["initial"] * 100, 2),
+        "unrealized_pnl": actual_risk["pnl"]["unrealized"],
+        "net_delta": actual_risk["greeks"]["net_delta"],
+        "net_theta": actual_risk["greeks"]["net_theta"],
+        "gross_exposure": actual_risk["exposure"]["gross"],
+        "net_exposure": actual_risk["exposure"]["net"],
     }
-    portfolio["today_pnl_pct"] = round((portfolio["today_pnl"] / portfolio["total_capital"]) * 100, 2)
     
     # Strategies status
     strategies_status = []
@@ -950,12 +975,12 @@ def jarvis_observability():
     
     # Risk state
     risk = {
-        "kill_switch_active": False,
+        "kill_switch_active": actual_risk["limits"]["kill_switch"],
         "max_daily_loss_pct": 3.0,
         "max_daily_loss_amount": 3000,
         "today_loss_so_far": abs(min(portfolio["today_pnl"], 0)),
         "distance_to_kill_switch": max(0, 3000 - abs(min(portfolio["today_pnl"], 0))),
-        "max_open_positions": 5,
+        "max_open_positions": actual_risk["limits"]["max_positions"],
         "current_open_positions": portfolio["open_positions"],
         "position_sizing_pct": 2.0,
         "alerts": [],
@@ -1108,6 +1133,53 @@ def jarvis_check_trade_eligibility(req: Dict):
 class ExecuteSignalRequest(BaseModel):
     strategy_key: str
     symbol: str
+
+
+class TradingModeRequest(BaseModel):
+    mode: str
+    broker: str = ""
+    confirmation: str = ""
+
+
+class LiveOrderRequest(BaseModel):
+    confirmation: str
+    legs: List[Dict]
+    risk: Dict
+
+
+@app.get("/api/trading/mode")
+def trading_mode_status():
+    return get_trading_mode().status()
+
+
+@app.post("/api/trading/mode")
+def set_trading_mode(req: TradingModeRequest):
+    manager = get_trading_mode()
+    if req.mode.upper() == "PAPER":
+        return manager.set_paper()
+    if req.mode.upper() != "LIVE":
+        raise HTTPException(status_code=400, detail="Mode must be PAPER or LIVE")
+    broker = req.broker.upper()
+    module = {"ZERODHA": zerodha_broker, "FYERS": fyers_broker}.get(broker)
+    if module is None:
+        raise HTTPException(status_code=400, detail="Unsupported live broker")
+    connection = module.test_connection()
+    try:
+        return manager.set_live(broker, req.confirmation, bool(connection.get("connected")))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except (ValueError, ConnectionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/trading/live/orders")
+def place_guarded_live_orders(req: LiveOrderRequest):
+    if req.confirmation != "PLACE LIVE ORDERS":
+        raise HTTPException(status_code=400, detail="Live order confirmation must exactly match: PLACE LIVE ORDERS")
+    result = execute_live_legs(req.legs, req.risk)
+    if not result.get("accepted"):
+        raise HTTPException(status_code=400, detail=result)
+    return result
 
 
 @app.post("/api/jarvis/execute-signal")

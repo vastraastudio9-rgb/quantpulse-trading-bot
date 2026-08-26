@@ -191,6 +191,13 @@ export interface BrokersStatusResponse {
   };
 }
 
+export interface TradingModeStatus {
+  mode: "PAPER" | "LIVE";
+  broker: string;
+  live_allowed: boolean;
+  autonomous_live_allowed: boolean;
+}
+
 export interface ResearchRepo {
   name: string;
   url: string;
@@ -260,6 +267,15 @@ export const tradingApi = {
 
   getBrokersStatus: () =>
     fetchJson<BrokersStatusResponse>(apiUrl("/api/brokers/status")),
+
+  getTradingMode: () =>
+    fetchJson<TradingModeStatus>(apiUrl("/api/trading/mode")),
+
+  setTradingMode: (mode: "PAPER" | "LIVE", broker = "", confirmation = "") =>
+    fetchJson<TradingModeStatus>(apiUrl("/api/trading/mode"), {
+      method: "POST",
+      body: JSON.stringify({ mode, broker, confirmation }),
+    }),
 
   getResearch: () =>
     fetchJson<{

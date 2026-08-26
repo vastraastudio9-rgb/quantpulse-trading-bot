@@ -17,3 +17,4 @@ logs/
 .DS_Store
 AGENTS.md
 CLAUDE.md
+mini-services/trading-engine/data/
