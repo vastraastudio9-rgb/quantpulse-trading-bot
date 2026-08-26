@@ -57,6 +57,7 @@ from market_data_store import get_market_data_store
 from orb_algorithm import ORBConfig, run_orb_backtest
 from nse_data_adapter import download_nse_index
 from broker_data_adapter import download_broker_candles
+from futures_research import near_month_stock_futures, run_futures_orb_batch
 
 
 @asynccontextmanager
@@ -1435,6 +1436,14 @@ class BrokerCandleDownloadRequest(BaseModel):
     exchange: str = "NSE"
 
 
+class FuturesResearchRequest(BaseModel):
+    from_date: Optional[str] = None
+    to_date: Optional[str] = None
+    min_volume: int = 10000
+    min_open_interest: int = 5000
+    max_symbols: int = 50
+
+
 @app.get("/api/jarvis/autonomy/status")
 def autonomy_status():
     return get_autonomy_supervisor().status()
@@ -1524,6 +1533,67 @@ def research_policy_run(req: ResearchRunRequest):
         raise HTTPException(status_code=400, detail="Research window must be 365-1825 days")
     output = Path(__file__).parent / "data" / "research-policy.json"
     return run_research(req.symbols, req.strategies, req.days, output)
+
+
+def _kite_client_or_409():
+    if not zerodha_broker.is_configured():
+        raise HTTPException(
+            status_code=409,
+            detail="Kite Connect is not configured in the engine. Set API key, secret, and today's access token.",
+        )
+    client = zerodha_broker.get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Kite Connect client could not be initialized")
+    return client
+
+
+@app.get("/api/jarvis/futures/universe")
+def futures_universe():
+    """Current nearest-expiry NSE single-stock futures from Kite's instrument master."""
+    client = _kite_client_or_409()
+    try:
+        contracts = near_month_stock_futures(client.instruments("NFO"))
+        return {"source": "KITE", "paper_only": True, "count": len(contracts), "contracts": contracts}
+    except Exception as exc:
+        logger.error("futures_universe_failed", error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Kite instrument download failed: {exc}")
+
+
+@app.get("/api/jarvis/futures/research/latest")
+def futures_research_latest():
+    target = Path(__file__).parent / "data" / "futures-research.json"
+    if not target.is_file():
+        return {"status": "NOT_RUN", "paper_only": True, "live_eligible": False}
+    return __import__("json").loads(target.read_text(encoding="utf-8"))
+
+
+@app.post("/api/jarvis/futures/research/run")
+def futures_research_run(req: FuturesResearchRequest):
+    """Run liquidity-gated ORB research across current NSE stock futures."""
+    from datetime import date as date_type
+    client = _kite_client_or_409()
+    try:
+        end = date_type.fromisoformat(req.to_date) if req.to_date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        start = date_type.fromisoformat(req.from_date) if req.from_date else end - timedelta(days=120)
+        if start > end or (end - start).days > 180:
+            raise ValueError("Futures intraday research window must be 1-180 days")
+        if not 1 <= req.max_symbols <= 200:
+            raise ValueError("max_symbols must be 1-200")
+        if req.min_volume < 0 or req.min_open_interest < 0:
+            raise ValueError("Liquidity thresholds cannot be negative")
+        instruments = client.instruments("NFO")
+        output = Path(__file__).parent / "data" / "futures-research.json"
+        return run_futures_orb_batch(
+            client, instruments, start, end, req.min_volume,
+            req.min_open_interest, req.max_symbols, output,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("futures_research_failed", error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Futures research failed: {exc}")
 
 
 # ============ NORMALIZED MARKET DATA + EVENT BACKTEST ============
