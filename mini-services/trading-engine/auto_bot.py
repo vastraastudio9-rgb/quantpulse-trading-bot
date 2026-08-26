@@ -34,6 +34,16 @@ from research_optimizer import load_policy
 import brokers.telegram_bot as telegram_bot
 
 
+def select_policy_candidates(candidates: List[str], policy: Dict, symbol: str, trading_mode: str):
+    """Separate live-approved routing from PAPER_RND candidate learning."""
+    policy_choice = policy.get("approved_by_symbol", {}).get(symbol, {}).get("strategy")
+    if policy_choice:
+        return [candidate for candidate in candidates if candidate == policy_choice], "VALIDATED_POLICY"
+    if trading_mode == "PAPER":
+        return list(candidates), "PAPER_RND"
+    return [], "LIVE_POLICY_BLOCKED"
+
+
 @dataclass
 class BotConfig:
     """Auto-trading bot configuration."""
@@ -206,22 +216,15 @@ class AutoTradingBot:
             if s not in self.config.strategy_blacklist and s in STRATEGIES
         ]
         policy = load_policy()
-        policy_choice = policy.get("approved_by_symbol", {}).get(symbol, {}).get("strategy")
-        if policy.get("mode") == "RISK_OFF" or not policy_choice:
-            self._last_scan = {
-                "symbol": symbol, "regime": regime_state.composite_regime,
-                "action": "NO_TRADE_RESEARCH_POLICY",
-                "reason": "No algorithm passed untouched holdout gates for this symbol",
-                "research_mode": policy.get("mode", "RISK_OFF"),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-            return
-        candidates = [candidate for candidate in candidates if candidate == policy_choice]
+        from trading_mode import get_trading_mode
+        candidates, execution_scope = select_policy_candidates(
+            candidates, policy, symbol, get_trading_mode().status()["mode"]
+        )
         if not candidates:
             self._last_scan = {
                 "symbol": symbol, "regime": regime_state.composite_regime,
                 "action": "NO_TRADE_POLICY_REGIME_MISMATCH",
-                "reason": f"Validated {policy_choice} is not suitable for the current regime",
+                "reason": "No policy-compatible strategy is suitable for the current regime",
                 "research_mode": policy.get("mode", "RISK_OFF"),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
@@ -258,6 +261,8 @@ class AutoTradingBot:
         
         if signal is None:
             return
+        signal["execution_scope"] = execution_scope
+        signal["research_candidate"] = execution_scope == "PAPER_RND"
         
         # === SAFETY CHECK 6: Confidence threshold ===
         if signal.get("confidence", 0) < self.config.min_confidence:
@@ -276,9 +281,10 @@ class AutoTradingBot:
         try:
             sizing = supervisor.position_size(signal, regime_state.confidence)
             signal["quantity"] = sizing["quantity"]
-            supervisor.record_decision("SIGNAL_APPROVED", strategy_key, "All autonomous gates passed", {
+            supervisor.record_decision("PAPER_RND_SIGNAL_APPROVED" if execution_scope == "PAPER_RND" else "SIGNAL_APPROVED",
+                                       strategy_key, "All autonomous paper gates passed", {
                 "symbol": symbol, "confidence": signal.get("confidence", 0),
-                "regime": regime_state.composite_regime, "sizing": sizing,
+                "regime": regime_state.composite_regime, "sizing": sizing, "execution_scope": execution_scope,
             })
         except Exception as e:
             logger.error(f"Auto bot: position sizing failed closed: {e}")
@@ -296,7 +302,7 @@ class AutoTradingBot:
                 "strategy": strategy_key,
                 "confidence": signal.get("confidence", 0),
                 "regime": regime_state.composite_regime,
-                "action": "EXECUTED",
+                "action": "PAPER_RND_EXECUTED" if execution_scope == "PAPER_RND" else "EXECUTED",
                 "position_id": result.get("position_id"),
                 "side": result.get("side"),
                 "entry_price": result.get("entry_price"),
@@ -313,7 +319,7 @@ class AutoTradingBot:
             metrics.inc_counter("auto_bot_executions_total", strategy=strategy_key, symbol=symbol)
             
             # Send Telegram alert
-            if self.config.send_telegram_alerts and telegram_bot.is_configured():
+            if signal.get("execution_eligible") is True and self.config.send_telegram_alerts and telegram_bot.is_configured():
                 try:
                     telegram_bot.send_alert(
                         title="🤖 Auto-Trade Executed",
