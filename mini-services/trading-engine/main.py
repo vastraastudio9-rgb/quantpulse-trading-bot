@@ -48,6 +48,7 @@ from auto_bot import get_auto_bot, BotConfig
 from trade_journal import get_journal
 from trading_mode import get_trading_mode
 from live_execution import execute_live_legs
+from autonomy import get_autonomy_supervisor
 
 app = FastAPI(
     title="Multi-Asset Trading Engine API",
@@ -69,6 +70,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def resume_safe_background_workers():
+    """Resume only persisted PAPER autonomy after a process restart."""
+    supervisor = get_autonomy_supervisor()
+    if supervisor.config.enabled:
+        supervisor.start()
+        get_execution_engine().start_monitoring(5)
+        bot = get_auto_bot()
+        bot.config.enabled = True
+        bot.start()
 
 # ============ REQUEST LOGGING MIDDLEWARE ============
 @app.middleware("http")
@@ -1333,6 +1346,80 @@ def auto_bot_stop():
     result = bot.disable()
     logger.warning("AUTO_BOT_DISABLED")
     return result
+
+
+# ============ AUTONOMY SUPERVISOR ENDPOINTS ============
+class AutonomyConfigRequest(BaseModel):
+    heartbeat_seconds: Optional[int] = None
+    max_quote_age_seconds: Optional[int] = None
+    max_spread_pct: Optional[float] = None
+    risk_per_trade_pct: Optional[float] = None
+    max_hold_minutes: Optional[int] = None
+    trailing_trigger_pct: Optional[float] = None
+    trailing_lock_pct: Optional[float] = None
+    min_promotion_trades: Optional[int] = None
+    min_win_rate: Optional[float] = None
+    min_profit_factor: Optional[float] = None
+    max_promotion_drawdown_pct: Optional[float] = None
+    auto_recover: Optional[bool] = None
+    reconcile_enabled: Optional[bool] = None
+    daily_workflow_enabled: Optional[bool] = None
+
+
+@app.get("/api/jarvis/autonomy/status")
+def autonomy_status():
+    return get_autonomy_supervisor().status()
+
+
+@app.post("/api/jarvis/autonomy/configure")
+def autonomy_configure(req: AutonomyConfigRequest):
+    return get_autonomy_supervisor().configure(req.model_dump(exclude_none=True))
+
+
+@app.post("/api/jarvis/autonomy/start")
+def autonomy_start():
+    """Start full unattended PAPER operations; never activates LIVE mode."""
+    mode = get_trading_mode().status()
+    if mode["mode"] != "PAPER":
+        raise HTTPException(status_code=409, detail="Autonomy is PAPER-only; switch to PAPER first")
+    supervisor = get_autonomy_supervisor()
+    result = supervisor.start()
+    get_execution_engine().start_monitoring(5)
+    bot = get_auto_bot()
+    bot.config.enabled = True
+    bot.start()
+    return {**result, "bot": bot.status(), "execution": get_execution_engine().status()}
+
+
+@app.post("/api/jarvis/autonomy/stop")
+def autonomy_stop():
+    get_auto_bot().disable()
+    return get_autonomy_supervisor().stop()
+
+
+@app.post("/api/jarvis/autonomy/cycle")
+def autonomy_cycle():
+    return get_autonomy_supervisor().run_cycle()
+
+
+@app.get("/api/jarvis/autonomy/decisions")
+def autonomy_decisions(limit: int = Query(100, ge=1, le=1000)):
+    return {"items": get_autonomy_supervisor().decisions(limit), "limit": limit}
+
+
+@app.get("/api/jarvis/autonomy/promotion")
+def autonomy_promotion():
+    return get_autonomy_supervisor().promotion_status()
+
+
+@app.post("/api/jarvis/autonomy/reconcile")
+def autonomy_reconcile():
+    return get_autonomy_supervisor().reconcile()
+
+
+@app.post("/api/jarvis/autonomy/daily-report")
+def autonomy_daily_report():
+    return get_autonomy_supervisor().generate_daily_report()
 
 
 # ============ TRADE JOURNAL ENDPOINTS ============

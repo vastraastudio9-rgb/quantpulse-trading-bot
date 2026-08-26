@@ -79,7 +79,11 @@ class PaperExecutionEngine:
             if not cfg:
                 return {"accepted": False, "reason": f"Unknown symbol: {symbol}"}
             
-            quantity = cfg["lot_size"]
+            # Autonomous supervisor may provide a risk-sized quantity.  It must
+            # remain a positive whole number of exchange lots.
+            lot_size = int(cfg["lot_size"])
+            requested_quantity = int(signal.get("quantity", lot_size) or lot_size)
+            quantity = max(lot_size, (requested_quantity // lot_size) * lot_size)
             entry_price = signal.get("entry_price", 0)
             stop_loss = signal.get("stop_loss", 0)
             take_profit = signal.get("target", 0)

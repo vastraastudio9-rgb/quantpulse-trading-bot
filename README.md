@@ -22,6 +22,17 @@ local. Read [PRODUCTION.md](./PRODUCTION.md) before deployment.
 Start the Python engine on port 3030 and the Next.js dashboard on port 3000.
 Development rewrites keep both services in one web application.
 
+## Autonomous paper operations
+
+The JARVIS autonomy supervisor coordinates dynamic position sizing, strategy
+governance, stop/target/trailing/time exits, market-data health checks, worker
+recovery, internal reconciliation, daily workflow reports, and an append-only
+decision journal. Its controls and status are available in the JARVIS dashboard
+and under `/api/jarvis/autonomy/*`.
+
+The supervisor is intentionally paper-only. It cannot activate LIVE mode or
+submit broker orders, and a restart never relaxes the live-trading safeguards.
+
 Run validation with:
 
 ```text

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, AlertTriangle, Shield, TrendingUp, TrendingDown, Cpu, Database, Zap, Eye, Brain, Target } from "lucide-react";
+import { Activity, AlertTriangle, Shield, Cpu, Database, Zap, Eye, Brain, Target, RefreshCw, Workflow } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,19 +55,40 @@ interface JarvisObs {
   timestamp: string;
 }
 
+interface AutonomyStatus {
+  enabled: boolean;
+  running: boolean;
+  paper_only: boolean;
+  heartbeat: string | null;
+  workflow_phase: string;
+  health: { status: string; safe_to_trade?: boolean };
+  reconciliation: { status: string; internal_positions?: number; issues?: string[] };
+  recoveries: number;
+  promotion: { eligible_to_request_live_review: boolean; closed_paper_trades: number; blockers: string[] };
+  governance: { strategies: Record<string, { state: string; reason: string; trades: number }> };
+  alerts: Array<{ level: string; code: string; message: string }>;
+  recent_decisions: Array<{ timestamp: string; action: string; subject: string; reason: string }>;
+}
+
 export function JarvisView() {
   const [data, setData] = useState<JarvisObs | null>(null);
   const [loading, setLoading] = useState(true);
   const [killSwitchConfirm, setKillSwitchConfirm] = useState(false);
   const [activatingKill, setActivatingKill] = useState(false);
+  const [autonomy, setAutonomy] = useState<AutonomyStatus | null>(null);
+  const [autonomyBusy, setAutonomyBusy] = useState(false);
   const { toast } = useToast();
 
   const loadData = async () => {
     try {
-      const res = await fetch("/api/jarvis/observability?XTransformPort=3030");
+      const [res, autonomyRes] = await Promise.all([
+        fetch("/api/jarvis/observability?XTransformPort=3030"),
+        fetch("/api/jarvis/autonomy/status?XTransformPort=3030"),
+      ]);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
       setData(d);
+      if (autonomyRes.ok) setAutonomy(await autonomyRes.json());
       setLoading(false);
     } catch (e: any) {
       setLoading(false);
@@ -120,6 +141,22 @@ export function JarvisView() {
       loadData();
     } catch (e: any) {
       toast({ title: "Failed", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const toggleAutonomy = async () => {
+    setAutonomyBusy(true);
+    try {
+      const action = autonomy?.running ? "stop" : "start";
+      const res = await fetch(`/api/jarvis/autonomy/${action}?XTransformPort=3030`, { method: "POST" });
+      if (!res.ok) throw new Error(await res.text());
+      toast({ title: action === "start" ? "JARVIS autonomy started" : "JARVIS autonomy stopped",
+        description: action === "start" ? "Full unattended paper operations are active." : "Automatic scanning has stopped." });
+      await loadData();
+    } catch (e: any) {
+      toast({ title: "Autonomy action failed", description: e.message, variant: "destructive" });
+    } finally {
+      setAutonomyBusy(false);
     }
   };
 
@@ -198,6 +235,67 @@ export function JarvisView() {
             ))}
           </div>
         </Card>
+      )}
+
+      {/* Autonomous operations control plane */}
+      <Card className="p-4 border-cyan-500/30 bg-cyan-500/5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Workflow className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm font-semibold">Autonomous Operations</span>
+              <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-400">PAPER ONLY</Badge>
+              <Badge variant="outline" className={cn("text-[9px]", autonomy?.running ? "border-emerald-500/40 text-emerald-400" : "text-zinc-500")}>
+                {autonomy?.running ? "RUNNING" : "STOPPED"}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {autonomy ? `${autonomy.workflow_phase.replace(/_/g, " ")} · Health ${autonomy.health.status} · Reconciliation ${autonomy.reconciliation.status}` : "Supervisor unavailable"}
+            </p>
+          </div>
+          <Button size="sm" variant={autonomy?.running ? "outline" : "default"} onClick={toggleAutonomy} disabled={autonomyBusy || risk.kill_switch_active}>
+            <RefreshCw className={cn("w-3.5 h-3.5 mr-1", autonomyBusy && "animate-spin")} />
+            {autonomy?.running ? "Stop Autonomy" : "Start Autonomy"}
+          </Button>
+        </div>
+        {autonomy && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3 text-xs">
+            <Metric label="Data Health" value={autonomy.health.status} positive={autonomy.health.status === "OK"} negative={autonomy.health.status === "FAILED"} />
+            <Metric label="Recoveries" value={String(autonomy.recoveries)} />
+            <Metric label="Paper Trades" value={String(autonomy.promotion.closed_paper_trades)} />
+            <Metric label="Live Review" value={autonomy.promotion.eligible_to_request_live_review ? "ELIGIBLE" : "BLOCKED"} warning={!autonomy.promotion.eligible_to_request_live_review} />
+          </div>
+        )}
+      </Card>
+
+      {autonomy && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <Card className="p-4">
+            <h3 className="text-sm font-semibold mb-3">Strategy Governance</h3>
+            <div className="space-y-1.5 max-h-56 overflow-y-auto">
+              {Object.entries(autonomy.governance.strategies).map(([key, item]) => (
+                <div key={key} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate">{key.replace(/_/g, " ")}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">{item.trades} trades</span>
+                    <Badge variant="outline" className={cn("text-[9px]", item.state === "QUARANTINED" ? "text-red-400 border-red-500/40" : item.state === "PAPER_VALIDATED" ? "text-emerald-400 border-emerald-500/40" : "text-amber-400 border-amber-500/40")}>{item.state.replace(/_/g, " ")}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card className="p-4">
+            <h3 className="text-sm font-semibold mb-3">Recent Autonomous Decisions</h3>
+            <div className="space-y-2 max-h-56 overflow-y-auto">
+              {autonomy.recent_decisions.length === 0 ? <p className="text-xs text-muted-foreground">No decisions recorded yet.</p> : autonomy.recent_decisions.map((d, i) => (
+                <div key={`${d.timestamp}-${i}`} className="text-xs border-b border-border/50 pb-1.5">
+                  <div className="flex justify-between"><span className="font-medium">{d.action.replace(/_/g, " ")}</span><span className="text-[9px] text-muted-foreground">{new Date(d.timestamp).toLocaleTimeString()}</span></div>
+                  <p className="text-[10px] text-muted-foreground">{d.subject}: {d.reason}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
       )}
 
       {/* System health */}

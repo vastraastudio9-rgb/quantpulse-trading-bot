@@ -200,6 +200,26 @@ class AutoTradingBot:
             return
         
         strategy_key = random.choice(candidates)
+
+        # Evidence governance can quarantine a strategy after enough poor paper
+        # results. Sparse history remains eligible for paper learning.
+        try:
+            from autonomy import get_autonomy_supervisor
+            supervisor = get_autonomy_supervisor()
+            allowed, governance_reason = supervisor.strategy_allowed(strategy_key)
+            if not allowed:
+                self._rejection_count += 1
+                self._last_scan = {
+                    "symbol": symbol, "strategy": strategy_key,
+                    "action": "REJECTED_GOVERNANCE", "reason": governance_reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                supervisor.record_decision("SIGNAL_REJECTED", strategy_key, governance_reason,
+                                           {"symbol": symbol, "gate": "strategy_governance"})
+                return
+        except Exception as e:
+            logger.error(f"Auto bot: governance check failed closed: {e}")
+            return
         
         # Generate signal
         try:
@@ -221,6 +241,19 @@ class AutoTradingBot:
                 "action": "REJECTED_LOW_CONFIDENCE",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
+            return
+
+        # Dynamic quantity considers stop distance, confidence, volatility, and
+        # portfolio drawdown. Any sizing failure blocks execution.
+        try:
+            sizing = supervisor.position_size(signal, regime_state.confidence)
+            signal["quantity"] = sizing["quantity"]
+            supervisor.record_decision("SIGNAL_APPROVED", strategy_key, "All autonomous gates passed", {
+                "symbol": symbol, "confidence": signal.get("confidence", 0),
+                "regime": regime_state.composite_regime, "sizing": sizing,
+            })
+        except Exception as e:
+            logger.error(f"Auto bot: position sizing failed closed: {e}")
             return
         
         # Execute via paper trading engine
