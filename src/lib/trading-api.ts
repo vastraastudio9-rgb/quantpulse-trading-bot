@@ -85,7 +85,10 @@ export interface TradingSignal {
   evidence_grade?: string;
   execution_eligible?: boolean;
   paper_execution_eligible?: boolean;
-  execution_scope?: "REAL_MARKET" | "PAPER_RND";
+  execution_scope?: "REAL_MARKET" | "PAPER_RND" | "PAPER_MANUAL";
+  paper_status?: "DETECTED" | "POSITION_OPENED" | "RISK_BLOCKED" | "MANUAL_GENERATED";
+  paper_outcome?: { position_id?: string; reason?: string };
+  notification?: { sent?: boolean; error?: string };
   validation_errors?: string[];
 }
 

@@ -338,11 +338,20 @@ class AutoTradingBot:
 
         # A qualifying paper signal remains useful when portfolio risk later
         # rejects a new position because of duplication or exposure limits.
-        self._notify_paper_signal(signal, regime_state.composite_regime, execution_scope)
+        notification = self._notify_paper_signal(signal, regime_state.composite_regime, execution_scope)
+        from paper_signal_journal import get_paper_signal_journal
+        paper_signal_id = get_paper_signal_journal().record_detected(
+            signal, regime_state.composite_regime, execution_scope, notification,
+        )
         
         # Execute via paper trading engine
         execution_engine = get_execution_engine()
         result = execution_engine.process_signal(signal)
+        get_paper_signal_journal().record_outcome(
+            paper_signal_id,
+            "POSITION_OPENED" if result.get("accepted") else "RISK_BLOCKED",
+            {"position_id": result.get("position_id"), "reason": result.get("reason", "")},
+        )
         
         if result.get("accepted"):
             self._execution_count += 1

@@ -65,6 +65,7 @@ from broker_data_adapter import download_broker_candles
 from futures_research import near_month_stock_futures, run_futures_orb_batch
 from kite_rnd_pipeline import run_nifty_orb_pipeline
 from intraday_research import research_intraday_strategies
+from paper_signal_journal import get_paper_signal_journal
 
 
 @asynccontextmanager
@@ -265,8 +266,9 @@ def list_strategies():
 
 @app.get("/api/signals")
 def get_signals(limit: int = Query(12, ge=1, le=50)):
-    """Get latest signals feed across all strategies & symbols."""
-    return generate_signals_feed(limit=limit)
+    """Get actual autonomous paper signals; use generated previews only before the first detection."""
+    paper_signals = get_paper_signal_journal().recent(limit)
+    return paper_signals if paper_signals else generate_signals_feed(limit=limit)
 
 @app.post("/api/signals/generate")
 def create_signal(req: SignalRequest):
@@ -276,7 +278,15 @@ def create_signal(req: SignalRequest):
         raise HTTPException(status_code=400, detail=f"Invalid strategy/symbol: {req.strategy_key}/{req.symbol}")
     metrics.record_signal(req.strategy_key, req.symbol, sig.get("confidence", 0))
     logger.trade("signal_generated", strategy=req.strategy_key, symbol=req.symbol, confidence=sig.get("confidence"))
+    signal_id = get_paper_signal_journal().record_detected(sig, "MANUAL", "PAPER_MANUAL", dedupe_minutes=0)
+    get_paper_signal_journal().record_outcome(signal_id, "MANUAL_GENERATED", {"reason": "Generated from dashboard"})
     return sig
+
+
+@app.get("/api/jarvis/paper-signals")
+def paper_signals(limit: int = Query(50, ge=1, le=500)):
+    items = get_paper_signal_journal().recent(limit)
+    return {"items": items, "count": len(items), "paper_only": True, "live_eligible": False}
 
 @app.get("/api/positions")
 def get_positions():
@@ -675,9 +685,21 @@ class TelegramSendRequest(BaseModel):
 def send_telegram(req: TelegramSendRequest):
     """Send a signal alert or generic message to Telegram."""
     if req.signal:
-        if req.signal.get("execution_eligible") is not True:
-            raise HTTPException(status_code=409, detail="Only validated REAL_MARKET signals can be sent as trade alerts")
-        result = telegram_bot.send_signal_alert(req.signal)
+        if req.signal.get("execution_eligible") is True:
+            result = telegram_bot.send_signal_alert(req.signal)
+        elif req.signal.get("paper_execution_eligible") is True:
+            result = telegram_bot.send_alert(
+                title="JARVIS Paper Signal — no live order",
+                message=(f"Strategy: {req.signal.get('strategy_name', '')}\n"
+                         f"Symbol: {req.signal.get('symbol', '')}\n"
+                         f"Confidence: {req.signal.get('confidence', 0)}%\n"
+                         f"Entry: ₹{req.signal.get('entry_price', 0)}\n"
+                         f"SL: ₹{req.signal.get('stop_loss', 0)}\n"
+                         f"Target: ₹{req.signal.get('target', 0)}"),
+                alert_type="INFO",
+            )
+        else:
+            raise HTTPException(status_code=409, detail="Signal failed structural paper validation")
     elif req.message:
         result = telegram_bot.send_alert(
             title=req.title or "QuantPulse Alert",

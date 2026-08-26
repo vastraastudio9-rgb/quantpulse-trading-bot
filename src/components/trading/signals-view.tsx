@@ -183,6 +183,11 @@ function SignalCard({ signal }: { signal: TradingSignal }) {
             {signal.status === "CANDIDATE" && (
               <Badge className="text-[9px] bg-cyan-500/15 text-cyan-400 border-0">R&amp;D CANDIDATE</Badge>
             )}
+            {signal.paper_status && (
+              <Badge variant="outline" className={cn("text-[9px]", signal.paper_status === "POSITION_OPENED" ? "border-emerald-500/40 text-emerald-400" : signal.paper_status === "RISK_BLOCKED" ? "border-amber-500/40 text-amber-400" : "border-cyan-500/40 text-cyan-400")}>
+                {signal.paper_status.replace(/_/g, " ")}
+              </Badge>
+            )}
           </div>
           <div className="text-xs text-muted-foreground mt-0.5">{signal.strategy_name}</div>
         </div>
@@ -245,6 +250,9 @@ function SignalCard({ signal }: { signal: TradingSignal }) {
       <div className="text-[11px] text-muted-foreground leading-relaxed bg-muted/10 p-2 rounded border-l-2 border-muted-foreground/30">
         {signal.rationale}
       </div>
+      {signal.paper_outcome?.reason && (
+        <div className="mt-2 text-[10px] text-amber-300">Paper outcome: {signal.paper_outcome.reason}</div>
+      )}
 
       {/* Breakevens */}
       {(signal.breakeven_upper || signal.breakeven_lower) && (
@@ -292,10 +300,10 @@ function SendToTelegramButton({ signal }: { signal: TradingSignal }) {
       size="sm"
       className="w-full h-7 text-[10px] mt-2"
       onClick={handleSend}
-      disabled={sending || signal.execution_eligible !== true}
+      disabled={sending || (signal.execution_eligible !== true && signal.paper_execution_eligible !== true)}
     >
       <Send className="w-3 h-3 mr-1" />
-      {sending ? "Sending..." : signal.execution_eligible === true ? "Send to Telegram" : "Telegram blocked — research only"}
+      {sending ? "Sending..." : signal.execution_eligible === true ? "Send Verified Signal to Telegram" : signal.paper_execution_eligible === true ? "Send Paper Signal to Telegram" : "Telegram blocked — invalid signal"}
     </Button>
   );
 }
