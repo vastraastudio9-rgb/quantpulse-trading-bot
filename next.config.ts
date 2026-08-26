@@ -5,12 +5,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   async rewrites() {
-    if (process.env.NODE_ENV !== "development") return [];
+    const tradingEngineUrl = process.env.TRADING_ENGINE_URL ?? "http://127.0.0.1:3030";
 
     return [
-      { source: "/health", destination: "http://127.0.0.1:3030/health" },
-      { source: "/metrics", destination: "http://127.0.0.1:3030/metrics" },
-      { source: "/api/:path*", destination: "http://127.0.0.1:3030/api/:path*" },
+      { source: "/health", destination: `${tradingEngineUrl}/health` },
+      { source: "/metrics", destination: `${tradingEngineUrl}/metrics` },
+      { source: "/api/:path*", destination: `${tradingEngineUrl}/api/:path*` },
     ];
   },
 };
