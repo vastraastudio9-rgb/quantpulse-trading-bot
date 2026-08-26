@@ -88,7 +88,7 @@ export function JarvisView() {
   const [autonomy, setAutonomy] = useState<AutonomyStatus | null>(null);
   const [autonomyBusy, setAutonomyBusy] = useState(false);
   const [rndBusy, setRndBusy] = useState(false);
-  const [rndResult, setRndResult] = useState<{ status: string; quality?: { score: number; rows: number }; backtest?: { metrics?: { total_trades: number; total_return_pct: number; max_drawdown_pct: number } } } | null>(null);
+  const [rndResult, setRndResult] = useState<{ status: string; quality?: { score: number; rows: number }; backtest?: { metrics?: { trades: number; return_pct: number; max_drawdown_pct: number } } } | null>(null);
   const { toast } = useToast();
 
   const loadData = async () => {
@@ -275,7 +275,7 @@ export function JarvisView() {
             <Metric label="Pipeline" value={rndResult.status.replace(/_/g, " ")} positive={rndResult.status === "COMPLETED"} negative={rndResult.status !== "COMPLETED"} />
             <Metric label="Data Quality" value={`${rndResult.quality?.score ?? 0}%`} positive={(rndResult.quality?.score ?? 0) >= 90} />
             <Metric label="Candles" value={String(rndResult.quality?.rows ?? 0)} />
-            <Metric label="Backtest Trades" value={String(rndResult.backtest?.metrics?.total_trades ?? 0)} />
+            <Metric label="Backtest Trades" value={String(rndResult.backtest?.metrics?.trades ?? 0)} />
           </div>
         )}
       </Card>

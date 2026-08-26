@@ -16,6 +16,7 @@ class ORBConfig:
     opening_range_minutes: int = 15
     volume_lookback: int = 20
     relative_volume_min: float = 1.15
+    allow_missing_volume: bool = False
     atr_period: int = 14
     stop_atr_multiple: float = 1.0
     reward_risk: float = 1.75
@@ -31,6 +32,10 @@ class ORBConfig:
 
 def _clock(value: str) -> time:
     return time.fromisoformat(value)
+
+
+def _minute_of_day(value: time) -> int:
+    return value.hour * 60 + value.minute
 
 
 def _atr(bars: List[Dict], period: int) -> float:
@@ -50,7 +55,13 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
     config = config or ORBConfig()
     if not bars:
         return {"status": "FAILED", "error": "No candles", "trades": []}
+    if not 5 <= config.opening_range_minutes <= 120:
+        return {"status": "FAILED", "error": "opening_range_minutes must be 5-120", "trades": []}
     ordered = sorted(bars, key=lambda bar: bar["timestamp"])
+    volume_data_available = any(float(bar.get("volume", 0) or 0) > 0 for bar in ordered)
+    session_open_minute = 9 * 60 + 15
+    opening_range_end = session_open_minute + config.opening_range_minutes
+    signal_start = max(_minute_of_day(_clock(config.entry_start)), opening_range_end)
     capital, peak, max_drawdown = initial_capital, initial_capital, 0.0
     trades, equity = [], []
     state: Dict[str, Dict] = {}
@@ -73,7 +84,8 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
         session["cum_volume"] += volume
         vwap = session["cum_pv"] / session["cum_volume"] if session["cum_volume"] else bar["close"]
 
-        if time(9, 15) <= local.time() < _clock(config.entry_start):
+        local_minute = _minute_of_day(local.time())
+        if session_open_minute <= local_minute < opening_range_end:
             session["or_high"] = max(session["or_high"] or bar["high"], bar["high"])
             session["or_low"] = min(session["or_low"] or bar["low"], bar["low"])
 
@@ -120,7 +132,7 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
         history = session["bars"]
         can_signal = (
             position is None and pending is None and session["or_high"] is not None
-            and _clock(config.entry_start) <= local.time() <= _clock(config.entry_cutoff)
+            and signal_start <= local_minute <= _minute_of_day(_clock(config.entry_cutoff))
             and session["trades"] < config.max_trades_per_day
             and session["consecutive_losses"] < config.consecutive_loss_stop
             and index + 1 < len(ordered)
@@ -129,9 +141,12 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
             recent_volumes = [float(item.get("volume", 0) or 0) for item in history[-config.volume_lookback - 1:-1]]
             average_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 0
             relative_volume = volume / average_volume if average_volume > 0 else 0
+            volume_confirmed = relative_volume >= config.relative_volume_min if average_volume > 0 else config.allow_missing_volume
             atr = _atr(history, config.atr_period)
-            side = 1 if bar["close"] > session["or_high"] and bar["close"] > vwap else -1 if bar["close"] < session["or_low"] and bar["close"] < vwap else 0
-            if side and relative_volume >= config.relative_volume_min and atr > 0:
+            long_vwap_ok = bar["close"] > vwap if session["cum_volume"] else config.allow_missing_volume
+            short_vwap_ok = bar["close"] < vwap if session["cum_volume"] else config.allow_missing_volume
+            side = 1 if bar["close"] > session["or_high"] and long_vwap_ok else -1 if bar["close"] < session["or_low"] and short_vwap_ok else 0
+            if side and volume_confirmed and atr > 0:
                 range_risk = abs(bar["close"] - (session["or_low"] if side == 1 else session["or_high"]))
                 risk_distance = max(atr * config.stop_atr_multiple, range_risk)
                 pending = {"execute_index": index + 1, "side": side, "signal_time": bar["timestamp"],
@@ -144,8 +159,16 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
     pnls = [trade["pnl"] for trade in trades]
     wins, losses = [p for p in pnls if p > 0], [p for p in pnls if p <= 0]
     profit_factor = sum(wins) / abs(sum(losses)) if losses and sum(losses) else 0
+    limitations = []
+    if not volume_data_available:
+        limitations.append(
+            "Volume confirmation bypassed because the index feed has no volume"
+            if config.allow_missing_volume else
+            "No trades allowed because the index feed has no volume; enable allow_missing_volume only for research"
+        )
     return {"status": "COMPLETED", "algorithm": "ORB_V1", "symbol": symbol,
             "data_source": ordered[0].get("source", "UNKNOWN"), "config": asdict(config),
+            "volume_data_available": volume_data_available, "limitations": limitations,
             "metrics": {"initial_capital": initial_capital, "final_capital": round(capital, 2),
                         "return_pct": round((capital / initial_capital - 1) * 100, 2),
                         "trades": len(trades), "wins": len(wins), "losses": len(losses),

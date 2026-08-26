@@ -71,3 +71,28 @@ def test_orb_loss_guard_resets_each_session():
                                                consecutive_loss_stop=1, forced_exit="11:10"))
     trade_days = {trade["entry_time"][:10] for trade in result["trades"]}
     assert len(trade_days) > 1
+
+
+def test_orb_missing_volume_is_explicit_and_fail_closed_by_default():
+    bars = [{**bar, "volume": 0} for bar in _intraday_bars()]
+    blocked = run_orb_backtest(bars, "NIFTY", 1, 0.05,
+                               config=ORBConfig(relative_volume_min=1.0, forced_exit="11:10"))
+    assert blocked["metrics"]["trades"] == 0
+    assert blocked["volume_data_available"] is False
+    assert "No trades allowed" in blocked["limitations"][0]
+
+    research = run_orb_backtest(bars, "NIFTY", 1, 0.05,
+                                config=ORBConfig(allow_missing_volume=True, forced_exit="11:10"))
+    assert research["metrics"]["trades"] > 0
+    assert "bypassed" in research["limitations"][0]
+
+
+def test_orb_opening_range_minutes_controls_first_signal_time():
+    result = run_orb_backtest(_intraday_bars(), "NIFTY", 1, 0.05,
+                              config=ORBConfig(opening_range_minutes=30, relative_volume_min=1.0,
+                                               forced_exit="11:10"))
+    for trade in result["trades"]:
+        local_signal = datetime.fromisoformat(trade["signal_time"]).astimezone(
+            __import__("zoneinfo").ZoneInfo("Asia/Kolkata")
+        )
+        assert (local_signal.hour, local_signal.minute) >= (9, 45)

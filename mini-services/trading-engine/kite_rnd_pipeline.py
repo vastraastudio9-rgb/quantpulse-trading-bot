@@ -51,6 +51,6 @@ def run_nifty_orb_pipeline(
         instrument["lot_size"],
         instrument["tick_size"],
         initial_capital,
-        ORBConfig(),
+        ORBConfig(allow_missing_volume=True),
     )
     return {**base, "status": "COMPLETED", "backtest": result}
