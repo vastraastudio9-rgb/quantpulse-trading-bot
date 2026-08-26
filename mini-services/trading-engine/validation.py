@@ -551,7 +551,8 @@ def walk_forward_optimize(
             "oos_positive_windows": sum(1 for s in oos_sharpes if s > 0),
             "overfit_windows": overfit_count,
             "overfit_pct": round(overfit_count / len(results) * 100, 1) if results else 0,
-            "verdict": "ROBUST" if overfit_count == 0 and np.mean(oos_sharpes) > 0 else
+            "verdict": "INSUFFICIENT_DATA" if not oos_sharpes else
+                       "ROBUST" if overfit_count == 0 and np.mean(oos_sharpes) > 0 else
                        "OVERFIT" if overfit_count > len(results) * 0.5 else "MODERATE",
         },
     }

@@ -16,9 +16,23 @@ if (-not (Test-Path -LiteralPath $mainPath) -or -not (Test-Path -LiteralPath $Py
     throw "Engine or Python runtime not found."
 }
 
-$release = Invoke-RestMethod -Uri "http://127.0.0.1:3030/api/jarvis/release-status" -TimeoutSec 10
-if (-not $release.preflight.safe_to_restart) {
-    throw ("Restart blocked: " + ($release.preflight.blockers -join "; "))
+$release = $null
+try {
+    $release = Invoke-RestMethod -Uri "http://127.0.0.1:3030/api/jarvis/release-status" -TimeoutSec 10
+} catch {
+    if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw }
+}
+if ($release) {
+    if (-not $release.preflight.safe_to_restart) {
+        throw ("Restart blocked: " + ($release.preflight.blockers -join "; "))
+    }
+} else {
+    # Legacy engines predate release-status. Preserve fail-closed behavior by
+    # independently verifying PAPER mode and a flat portfolio before upgrade.
+    $mode = Invoke-RestMethod -Uri "http://127.0.0.1:3030/api/trading/mode" -TimeoutSec 10
+    $positions = Invoke-RestMethod -Uri "http://127.0.0.1:3030/api/positions" -TimeoutSec 10
+    if ($mode.mode -ne "PAPER") { throw "Legacy restart blocked: trading mode is not PAPER." }
+    if (@($positions).Count -ne 0) { throw "Legacy restart blocked: paper portfolio is not flat." }
 }
 
 $listener = Get-NetTCPConnection -LocalPort 3030 -State Listen | Select-Object -First 1

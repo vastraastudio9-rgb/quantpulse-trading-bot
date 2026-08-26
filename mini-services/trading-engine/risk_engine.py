@@ -143,7 +143,11 @@ class PortfolioRiskEngine:
             "daily_loss_lock": self._daily_loss_lock, "kill_switch": self.limits.kill_switch,
             "kill_switch_reason": self.limits.kill_switch_reason,
         }
-        temp = self._persist_path.with_suffix(".tmp")
+        # A thread-specific temporary name prevents monitor, supervisor, and
+        # request persistence from contending for the same replace source.
+        temp = self._persist_path.with_name(
+            f"{self._persist_path.name}.{threading.get_ident()}.tmp"
+        )
         temp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         temp.replace(self._persist_path)
 

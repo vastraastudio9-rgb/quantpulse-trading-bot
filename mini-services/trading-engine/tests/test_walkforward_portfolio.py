@@ -105,6 +105,7 @@ class TestWalkForwardOptimize:
             step=30,
         )
         assert result["n_windows"] == 0
+        assert result["aggregate"]["verdict"] == "INSUFFICIENT_DATA"
 
 
 class TestPortfolioBacktest:
