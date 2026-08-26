@@ -57,6 +57,8 @@ class AutonomyConfig:
     auto_recover: bool = True
     reconcile_enabled: bool = True
     daily_workflow_enabled: bool = True
+    auto_rnd_enabled: bool = True
+    auto_rnd_refresh_data: bool = True
 
 
 class AutonomySupervisor:
@@ -77,6 +79,10 @@ class AutonomySupervisor:
         self._last_reconciliation: Dict = {"status": "NOT_RUN"}
         self._last_workflow_phase = "STOPPED"
         self._last_report_date: Optional[str] = None
+        self._last_rnd_date: Optional[str] = None
+        self._rnd_running = False
+        self._rnd_thread: Optional[threading.Thread] = None
+        self._last_rnd: Dict = {"status": "NOT_RUN", "paper_only": True, "live_eligible": False}
         self._alerts: List[Dict] = []
         self._recovery_count = 0
         self._load()
@@ -87,6 +93,9 @@ class AutonomySupervisor:
             allowed = set(AutonomyConfig.__dataclass_fields__)
             self.config = AutonomyConfig(**{k: v for k, v in raw.get("config", {}).items() if k in allowed})
             self._last_report_date = raw.get("last_report_date")
+            self._last_rnd_date = raw.get("last_rnd_date")
+            if isinstance(raw.get("last_rnd"), dict):
+                self._last_rnd = raw["last_rnd"]
             self._recovery_count = int(raw.get("recovery_count", 0))
         except (FileNotFoundError, OSError, ValueError, TypeError):
             pass
@@ -96,6 +105,8 @@ class AutonomySupervisor:
         payload = {
             "config": asdict(self.config),
             "last_report_date": self._last_report_date,
+            "last_rnd_date": self._last_rnd_date,
+            "last_rnd": self._last_rnd,
             "recovery_count": self._recovery_count,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -335,7 +346,74 @@ class AutonomySupervisor:
             self.generate_daily_report()
             self._last_report_date = today
             self._save()
+        if phase in {"POST_MARKET_REVIEW", "WEEKEND_RESEARCH"}:
+            self.trigger_rnd(force=False)
         return {"phase": phase, "market_timezone": "Asia/Kolkata", "timestamp": now.isoformat()}
+
+    def trigger_rnd(self, force: bool = False) -> Dict:
+        """Launch the research pipeline in the background without ever changing trading mode."""
+        today = datetime.now(IST).date().isoformat()
+        with self._lock:
+            if not self.config.auto_rnd_enabled and not force:
+                return {"started": False, "status": "DISABLED", "paper_only": True}
+            if self._rnd_running:
+                return {"started": False, "status": "RUNNING", "paper_only": True}
+            if not force and self._last_rnd_date == today:
+                return {"started": False, "status": "ALREADY_RUN_TODAY", "paper_only": True}
+            self._rnd_running = True
+            self._last_rnd = {"status": "RUNNING", "started_at": datetime.now(timezone.utc).isoformat(),
+                              "paper_only": True, "live_eligible": False}
+            self._save()
+            self._rnd_thread = threading.Thread(target=self._run_rnd_worker, name="jarvis-rnd", daemon=True)
+            self._rnd_thread.start()
+        self.record_decision("RND_STARTED", "NIFTYBEES", "Autonomous paper research started", {"force": force})
+        return {"started": True, "status": "RUNNING", "paper_only": True, "live_eligible": False}
+
+    def _execute_rnd(self) -> Dict:
+        """Refresh the public proxy when possible, then run leakage-resistant research."""
+        refresh = {"status": "SKIPPED"}
+        if self.config.auto_rnd_refresh_data:
+            try:
+                from yahoo_data_adapter import download_yahoo_intraday
+                refresh = {"status": "REFRESHED", **download_yahoo_intraday("NIFTYBEES.NS", "NIFTYBEES")}
+            except Exception as exc:
+                refresh = {"status": "FAILED_USING_LOCAL_DATA", "error": str(exc)}
+                logger.warning(f"Autonomous R&D data refresh failed; using local data: {exc}")
+        from intraday_research import research_intraday_strategies
+        from market_data_store import get_market_data_store
+        store = get_market_data_store()
+        quality = store.quality("NIFTYBEES", "5m", "YAHOO_PROXY")
+        if quality.get("status") != "PASS":
+            raise RuntimeError(f"NIFTYBEES five-minute data failed quality gate: {quality.get('status')}")
+        bars = store.bars("NIFTYBEES", "5m", "YAHOO_PROXY")
+        output = self.state_dir / "intraday-research.json"
+        result = research_intraday_strategies(bars, "NIFTYBEES", 1, .01, output)
+        return {**result, "quality": quality, "data_refresh": refresh}
+
+    def _run_rnd_worker(self) -> None:
+        today = datetime.now(IST).date().isoformat()
+        try:
+            result = self._execute_rnd()
+            completed = {**result, "completed_at": datetime.now(timezone.utc).isoformat(),
+                         "paper_only": True, "live_eligible": False}
+            with self._lock:
+                self._last_rnd = completed
+            self.record_decision("RND_COMPLETED", "NIFTYBEES", str(result.get("status", "COMPLETED")),
+                                 {"sessions": result.get("sessions"), "candidates": result.get("candidates_tested")})
+        except Exception as exc:
+            completed = {"status": "FAILED", "error": str(exc),
+                         "completed_at": datetime.now(timezone.utc).isoformat(),
+                         "paper_only": True, "live_eligible": False}
+            with self._lock:
+                self._last_rnd = completed
+            self._alert("WARNING", "RND_FAILED", str(exc))
+            self.record_decision("RND_FAILED", "NIFTYBEES", str(exc), {})
+            logger.error(f"Autonomous R&D failed: {exc}")
+        finally:
+            with self._lock:
+                self._last_rnd_date = today
+                self._rnd_running = False
+                self._save()
 
     def generate_daily_report(self) -> Dict:
         from auto_bot import get_auto_bot
@@ -343,7 +421,8 @@ class AutonomySupervisor:
         from trade_journal import get_journal
         report = {"date": datetime.now(IST).date().isoformat(), "risk": get_portfolio_engine().status(),
                   "bot": get_auto_bot().status(), "journal": get_journal().analyze(),
-                  "promotion": self.promotion_status(), "generated_at": datetime.now(timezone.utc).isoformat()}
+                  "promotion": self.promotion_status(), "rnd": self._last_rnd,
+                  "generated_at": datetime.now(timezone.utc).isoformat()}
         self.state_dir.mkdir(parents=True, exist_ok=True)
         with self.reports_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(report, separators=(",", ":")) + "\n")
@@ -409,6 +488,8 @@ class AutonomySupervisor:
                 "config": asdict(self.config), "heartbeat": self._last_heartbeat,
                 "workflow_phase": self._last_workflow_phase, "health": self._last_health,
                 "reconciliation": self._last_reconciliation, "recoveries": self._recovery_count,
+                "rnd": {"running": self._rnd_running, "auto_enabled": self.config.auto_rnd_enabled,
+                        "last_run_date": self._last_rnd_date, "latest": self._last_rnd},
                 "promotion": self.promotion_status(), "governance": self.strategy_governance(),
                 "research_policy": {"mode": research_policy.get("mode", "RISK_OFF"),
                                     "data_source": research_policy.get("data_source", "NONE"),

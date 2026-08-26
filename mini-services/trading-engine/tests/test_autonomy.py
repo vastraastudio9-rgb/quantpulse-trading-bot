@@ -1,6 +1,7 @@
 """Safety and orchestration tests for JARVIS autonomy supervisor."""
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -62,3 +63,38 @@ def test_sparse_history_stays_paper_learning(tmp_path):
     governance = supervisor.strategy_governance()["strategies"]
     assert governance
     assert all(item["state"] == "PAPER_LEARNING" for item in governance.values())
+
+
+def test_rnd_runs_in_background_persists_and_never_enables_live(tmp_path, monkeypatch):
+    supervisor = AutonomySupervisor(tmp_path)
+    monkeypatch.setattr(supervisor, "_execute_rnd", lambda: {
+        "status": "PAPER_CANDIDATE", "sessions": 60, "candidates_tested": 108,
+        "paper_only": True, "live_eligible": False,
+    })
+    started = supervisor.trigger_rnd()
+    assert started["started"] is True
+    assert started["paper_only"] is True
+    supervisor._rnd_thread.join(timeout=2)
+    assert supervisor._rnd_running is False
+    assert supervisor.status()["rnd"]["latest"]["status"] == "PAPER_CANDIDATE"
+    assert supervisor.status()["rnd"]["latest"]["live_eligible"] is False
+    assert AutonomySupervisor(tmp_path).status()["rnd"]["latest"]["status"] == "PAPER_CANDIDATE"
+    assert supervisor.trigger_rnd()["status"] == "ALREADY_RUN_TODAY"
+
+
+def test_rnd_trigger_is_non_blocking_and_records_failure(tmp_path, monkeypatch):
+    supervisor = AutonomySupervisor(tmp_path)
+
+    def fail_later():
+        time.sleep(.05)
+        raise RuntimeError("quality gate failed")
+
+    monkeypatch.setattr(supervisor, "_execute_rnd", fail_later)
+    started_at = time.monotonic()
+    assert supervisor.trigger_rnd(force=True)["started"] is True
+    assert time.monotonic() - started_at < .2
+    supervisor._rnd_thread.join(timeout=2)
+    status = supervisor.status()["rnd"]
+    assert status["running"] is False
+    assert status["latest"]["status"] == "FAILED"
+    assert "quality gate failed" in status["latest"]["error"]

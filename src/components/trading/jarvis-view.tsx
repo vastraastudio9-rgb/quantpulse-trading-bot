@@ -64,6 +64,12 @@ interface AutonomyStatus {
   health: { status: string; safe_to_trade?: boolean };
   reconciliation: { status: string; internal_positions?: number; issues?: string[] };
   recoveries: number;
+  rnd?: {
+    running: boolean;
+    auto_enabled: boolean;
+    last_run_date: string | null;
+    latest: { status: string; error?: string; sessions?: number; candidates_tested?: number };
+  };
   promotion: { eligible_to_request_live_review: boolean; closed_paper_trades: number; blockers: string[] };
   research_policy: { mode: string; data_source: string; approved_by_symbol: Record<string, unknown>; live_eligible: boolean };
   governance: { strategies: Record<string, { state: string; reason: string; trades: number }> };
@@ -349,8 +355,12 @@ export function JarvisView() {
               <Metric label="Data Health" value={autonomy.health.status} positive={autonomy.health.status === "OK"} negative={autonomy.health.status === "FAILED"} />
               <Metric label="Recoveries" value={String(autonomy.recoveries)} />
               <Metric label="Paper Trades" value={String(autonomy.promotion.closed_paper_trades)} />
-              <Metric label="Algo Mode" value={autonomy.research_policy.mode} warning={autonomy.research_policy.mode === "RISK_OFF"} />
+              <Metric label="Auto R&D" value={autonomy.rnd?.running ? "RUNNING" : (autonomy.rnd?.latest.status ?? "PENDING RESTART")} positive={autonomy.rnd?.latest.status === "PAPER_CANDIDATE"} warning={autonomy.rnd?.running || autonomy.rnd?.latest.status === "REJECTED"} negative={autonomy.rnd?.latest.status === "FAILED"} />
             </div>
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              Live mode: {autonomy.research_policy.mode} · R&amp;D {autonomy.rnd ? (autonomy.rnd.auto_enabled ? "runs automatically after market close" : "automation disabled") : "activates on the next engine restart"}
+              {autonomy.rnd?.last_run_date ? ` · Last run ${autonomy.rnd.last_run_date}` : ""}
+            </p>
           </>
         )}
       </Card>

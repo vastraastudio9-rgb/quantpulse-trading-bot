@@ -1448,6 +1448,8 @@ class AutonomyConfigRequest(BaseModel):
     auto_recover: Optional[bool] = None
     reconcile_enabled: Optional[bool] = None
     daily_workflow_enabled: Optional[bool] = None
+    auto_rnd_enabled: Optional[bool] = None
+    auto_rnd_refresh_data: Optional[bool] = None
 
 
 class PaperResetRequest(BaseModel):
@@ -1583,6 +1585,12 @@ def autonomy_reconcile():
 @app.post("/api/jarvis/autonomy/daily-report")
 def autonomy_daily_report():
     return get_autonomy_supervisor().generate_daily_report()
+
+
+@app.post("/api/jarvis/autonomy/rnd/run")
+def autonomy_rnd_run():
+    """Start a non-blocking paper-only R&D run; live eligibility is never changed."""
+    return get_autonomy_supervisor().trigger_rnd(force=True)
 
 
 @app.post("/api/jarvis/paper/reset")
