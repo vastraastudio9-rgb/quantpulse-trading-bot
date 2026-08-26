@@ -69,6 +69,11 @@ interface AutonomyStatus {
     auto_enabled: boolean;
     last_run_date: string | null;
     latest: { status: string; error?: string; sessions?: number; candidates_tested?: number };
+    forward_validation: {
+      candidates: Array<{ id: string; status: string; sessions: number; minimum_sessions: number; metrics?: { trades?: number } }>;
+      paper_only: boolean;
+      live_eligible: boolean;
+    };
   };
   promotion: { eligible_to_request_live_review: boolean; closed_paper_trades: number; blockers: string[] };
   research_policy: { mode: string; data_source: string; approved_by_symbol: Record<string, unknown>; live_eligible: boolean };
@@ -361,6 +366,11 @@ export function JarvisView() {
               Live mode: {autonomy.research_policy.mode} · R&amp;D {autonomy.rnd ? (autonomy.rnd.auto_enabled ? "runs automatically after market close" : "automation disabled") : "activates on the next engine restart"}
               {autonomy.rnd?.last_run_date ? ` · Last run ${autonomy.rnd.last_run_date}` : ""}
             </p>
+            {autonomy.rnd?.forward_validation.candidates[0] && (
+              <p className="mt-1 text-[10px] text-cyan-300">
+                Forward paper: {autonomy.rnd.forward_validation.candidates[0].status.replace(/_/g, " ")} · {autonomy.rnd.forward_validation.candidates[0].sessions}/{autonomy.rnd.forward_validation.candidates[0].minimum_sessions} unseen sessions · {autonomy.rnd.forward_validation.candidates[0].metrics?.trades ?? 0} trades
+              </p>
+            )}
           </>
         )}
       </Card>

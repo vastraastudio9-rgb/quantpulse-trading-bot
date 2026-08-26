@@ -386,9 +386,14 @@ class AutonomySupervisor:
         if quality.get("status") != "PASS":
             raise RuntimeError(f"NIFTYBEES five-minute data failed quality gate: {quality.get('status')}")
         bars = store.bars("NIFTYBEES", "5m", "YAHOO_PROXY")
+        from forward_validation import ForwardValidationRegistry
+        registry = ForwardValidationRegistry(self.state_dir / "forward-validation.json")
+        forward_evaluation = registry.evaluate(bars)
         output = self.state_dir / "intraday-research.json"
         result = research_intraday_strategies(bars, "NIFTYBEES", 1, .01, output)
-        return {**result, "quality": quality, "data_refresh": refresh}
+        registration = registry.register(result, str(bars[-1]["timestamp"]))
+        return {**result, "quality": quality, "data_refresh": refresh,
+                "forward_validation": {"evaluation": forward_evaluation, "registration": registration}}
 
     def _run_rnd_worker(self) -> None:
         today = datetime.now(IST).date().isoformat()
@@ -470,6 +475,8 @@ class AutonomySupervisor:
         from execution_engine import get_execution_engine
         from trading_mode import get_trading_mode
         research_policy = load_policy()
+        from forward_validation import ForwardValidationRegistry
+        forward_validation = ForwardValidationRegistry(self.state_dir / "forward-validation.json").status()
         mode = get_trading_mode().status()
         bot_running = get_auto_bot().status()["running"]
         monitor_running = get_execution_engine().status()["monitoring_active"]
@@ -489,7 +496,8 @@ class AutonomySupervisor:
                 "workflow_phase": self._last_workflow_phase, "health": self._last_health,
                 "reconciliation": self._last_reconciliation, "recoveries": self._recovery_count,
                 "rnd": {"running": self._rnd_running, "auto_enabled": self.config.auto_rnd_enabled,
-                        "last_run_date": self._last_rnd_date, "latest": self._last_rnd},
+                        "last_run_date": self._last_rnd_date, "latest": self._last_rnd,
+                        "forward_validation": forward_validation},
                 "promotion": self.promotion_status(), "governance": self.strategy_governance(),
                 "research_policy": {"mode": research_policy.get("mode", "RISK_OFF"),
                                     "data_source": research_policy.get("data_source", "NONE"),

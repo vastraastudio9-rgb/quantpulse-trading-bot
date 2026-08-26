@@ -1593,6 +1593,12 @@ def autonomy_rnd_run():
     return get_autonomy_supervisor().trigger_rnd(force=True)
 
 
+@app.get("/api/jarvis/autonomy/rnd/forward")
+def autonomy_rnd_forward_status():
+    """Return frozen-candidate forward-paper evidence; never grants live permission."""
+    return get_autonomy_supervisor().status()["rnd"]["forward_validation"]
+
+
 @app.post("/api/jarvis/paper/reset")
 def reset_paper_trading(req: PaperResetRequest):
     """Destructively reset simulated positions, P&L, counters, and journal."""
