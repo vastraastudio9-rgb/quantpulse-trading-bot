@@ -32,7 +32,7 @@ def download_nse_index(symbol: str, from_date: date, to_date: date,
     if frame is None or frame.empty:
         raise RuntimeError("NSE returned no index history")
     frame = frame.sort_values("HistoricalDate")
-    root = raw_dir or Path(os.getenv("MARKET_DATA_DIR", Path(__file__).parent / "data" / "market")) / "raw" / "nse_index"
+    root = raw_dir or Path(os.getenv("MARKET_DATA_DIR") or Path(__file__).parent / "data" / "market") / "raw" / "nse_index"
     root.mkdir(parents=True, exist_ok=True)
     target = root / f"{symbol}_{from_date.isoformat()}_{to_date.isoformat()}.csv"
     temp = target.with_suffix(".tmp")

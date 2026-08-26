@@ -17,7 +17,7 @@ class TradingModeManager:
     CONFIRMATION = "ENABLE LIVE TRADING"
 
     def __init__(self) -> None:
-        data_dir = Path(os.getenv("ENGINE_DATA_DIR", Path(__file__).parent / "data"))
+        data_dir = Path(os.getenv("ENGINE_DATA_DIR") or Path(__file__).parent / "data")
         data_dir.mkdir(parents=True, exist_ok=True)
         self._path = data_dir / "trading-mode.json"
         self._lock = threading.RLock()

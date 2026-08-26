@@ -1469,6 +1469,22 @@ class MarketDataImportRequest(BaseModel):
     instrument_token: str = ""
 
 
+def resolve_market_import_path(raw_path: str) -> Path:
+    """Resolve CSV imports only inside the operator-controlled import directory."""
+    market_root = Path(os.getenv("MARKET_DATA_DIR") or Path(__file__).parent / "data" / "market")
+    configured_root = os.getenv("MARKET_DATA_IMPORT_DIR") or str(market_root / "imports")
+    root = Path(configured_root).expanduser().resolve()
+    candidate = Path(raw_path).expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    candidate = candidate.resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        raise ValueError(f"CSV must be inside the configured import directory: {root}")
+    return candidate
+
+
 class ORBBacktestRequest(BaseModel):
     symbol: str
     source: Optional[str] = None
@@ -1671,7 +1687,10 @@ def market_data_quality(symbol: str, timeframe: str = Query("1d"), source: Optio
 
 @app.post("/api/jarvis/data/import-csv")
 def market_data_import_csv(req: MarketDataImportRequest):
-    path = Path(req.path).expanduser().resolve()
+    try:
+        path = resolve_market_import_path(req.path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not path.is_file() or path.suffix.lower() != ".csv":
         raise HTTPException(status_code=400, detail="A readable local CSV file is required")
     return get_market_data_store().import_csv(path, req.source, req.symbol, req.exchange,

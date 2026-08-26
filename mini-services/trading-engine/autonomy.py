@@ -63,7 +63,7 @@ class AutonomySupervisor:
     """Fail-closed orchestration for all autonomous PAPER operations."""
 
     def __init__(self, state_dir: Optional[Path] = None):
-        base = state_dir or Path(os.getenv("JARVIS_STATE_DIR", Path(__file__).parent / "data"))
+        base = state_dir or Path(os.getenv("JARVIS_STATE_DIR") or Path(__file__).parent / "data")
         self.state_dir = Path(base)
         self.state_path = self.state_dir / "autonomy_state.json"
         self.decisions_path = self.state_dir / "decision_journal.jsonl"

@@ -63,7 +63,8 @@ export function LeaderboardView() {
   };
 
   useEffect(() => {
-    loadLeaderboard();
+    const request = window.setTimeout(() => void loadLeaderboard(), 0);
+    return () => window.clearTimeout(request);
   }, [symbol, days]);
 
   return (

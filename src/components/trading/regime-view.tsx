@@ -56,9 +56,12 @@ export function RegimeView() {
   };
 
   useEffect(() => {
-    loadData();
+    const initialLoad = window.setTimeout(() => void loadData(), 0);
     const interval = setInterval(loadData, 15000);
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialLoad);
+      clearInterval(interval);
+    };
   }, []);
 
   if (loading) {

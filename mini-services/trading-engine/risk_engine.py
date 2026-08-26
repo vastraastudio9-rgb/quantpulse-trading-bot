@@ -573,7 +573,7 @@ def get_portfolio_engine(initial_capital: float = 100000) -> PortfolioRiskEngine
     if _portfolio_engine is None:
         persist_path = None
         if "PYTEST_CURRENT_TEST" not in os.environ:
-            data_dir = Path(os.getenv("ENGINE_DATA_DIR", Path(__file__).parent / "data"))
+            data_dir = Path(os.getenv("ENGINE_DATA_DIR") or Path(__file__).parent / "data")
             persist_path = data_dir / "risk-state.json"
         _portfolio_engine = PortfolioRiskEngine(initial_capital=initial_capital, persist_path=persist_path)
     return _portfolio_engine

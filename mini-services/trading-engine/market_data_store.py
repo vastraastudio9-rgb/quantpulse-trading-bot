@@ -51,7 +51,7 @@ class Candle:
 
 class MarketDataStore:
     def __init__(self, path: Optional[Path] = None):
-        root = Path(os.getenv("MARKET_DATA_DIR", Path(__file__).parent / "data" / "market"))
+        root = Path(os.getenv("MARKET_DATA_DIR") or Path(__file__).parent / "data" / "market")
         root.mkdir(parents=True, exist_ok=True)
         self.path = Path(path or root / "jarvis-market.duckdb")
         self.export_dir = root / "parquet"

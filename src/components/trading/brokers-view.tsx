@@ -56,7 +56,8 @@ export function BrokersView() {
   };
 
   useEffect(() => {
-    loadStatus();
+    const initialLoad = window.setTimeout(() => void loadStatus(), 0);
+    return () => window.clearTimeout(initialLoad);
   }, [toast]);
 
   if (loading) {

@@ -3,7 +3,7 @@ import os
 import pytest
 
 from trading_mode import TradingModeManager
-from live_execution import execute_live_legs
+from live_execution import execute_live_legs, validate_live_order_alignment
 
 
 def test_live_mode_is_disabled_by_default(tmp_path, monkeypatch):
@@ -37,3 +37,10 @@ def test_live_router_fails_closed_while_paper():
     result = execute_live_legs([{"tradingsymbol": "TEST", "action": "BUY", "quantity": 1}])
     assert result["accepted"] is False
     assert result["orders"] == []
+
+
+def test_live_order_must_match_risk_quantity_and_side():
+    leg = {"tradingsymbol": "NIFTY26AUG25000CE", "action": "BUY", "quantity": 75}
+    assert "quantity" in validate_live_order_alignment(leg, {"quantity": 25, "side": "LONG"})
+    assert "side" in validate_live_order_alignment(leg, {"quantity": 75, "side": "SHORT"})
+    assert validate_live_order_alignment(leg, {"quantity": 75, "side": "LONG"}) == ""

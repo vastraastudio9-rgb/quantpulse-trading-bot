@@ -83,7 +83,7 @@ def download_broker_candles(
     unique = {str(row.get("timestamp")): row for row in candles if row.get("timestamp")}
     rows = sorted(unique.values(), key=lambda row: str(row["timestamp"]))
 
-    root = raw_dir or Path(os.getenv("MARKET_DATA_DIR", Path(__file__).parent / "data" / "market")) / "raw" / broker.lower()
+    root = raw_dir or Path(os.getenv("MARKET_DATA_DIR") or Path(__file__).parent / "data" / "market") / "raw" / broker.lower()
     root.mkdir(parents=True, exist_ok=True)
     safe_id = "".join(char if char.isalnum() or char in "-_" else "_" for char in broker_instrument)
     target = root / f"{symbol}_{safe_id}_{timeframe}_{from_date.isoformat()}_{to_date.isoformat()}.csv"

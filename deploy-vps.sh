@@ -159,6 +159,7 @@ WorkingDirectory=$PROJECT_DIR/mini-services/trading-engine
 ExecStart=$PROJECT_DIR/.venv/bin/python3 main.py
 Restart=always
 RestartSec=5
+EnvironmentFile=$PROJECT_DIR/.env
 Environment=PYTHONPATH=$PROJECT_DIR/mini-services/trading-engine
 Environment=ENGINE_HOST=127.0.0.1
 Environment=TRADING_MODE=PAPER

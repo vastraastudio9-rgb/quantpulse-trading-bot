@@ -7,6 +7,21 @@ from trading_mode import get_trading_mode
 from risk_engine import Position, get_portfolio_engine
 
 
+def validate_live_order_alignment(leg: Dict, risk: Dict) -> str:
+    """Ensure the envelope being risk-checked is exactly the order being submitted."""
+    try:
+        order_quantity = int(leg.get("quantity", 0))
+        risk_quantity = int(risk.get("quantity", 0))
+    except (TypeError, ValueError):
+        return "Order and risk quantities must be integers"
+    if order_quantity != risk_quantity:
+        return "Order quantity must exactly match the risk-envelope quantity"
+    expected_side = {"BUY": "LONG", "SELL": "SHORT"}.get(leg.get("action"))
+    if expected_side and str(risk.get("side", "")).upper() != expected_side:
+        return "Order action must match the risk-envelope side"
+    return ""
+
+
 def execute_live_legs(legs: List[Dict], risk: Dict = None) -> Dict:
     mode = get_trading_mode().status()
     if mode["mode"] != "LIVE":
@@ -26,6 +41,9 @@ def execute_live_legs(legs: List[Dict], risk: Dict = None) -> Dict:
 
     if not risk:
         return {"accepted": False, "reason": "A complete risk envelope is required for live orders", "orders": []}
+    alignment_error = validate_live_order_alignment(legs[0], risk)
+    if alignment_error:
+        return {"accepted": False, "reason": alignment_error, "orders": []}
     try:
         proposed = Position(
             id="LIVE-CHECK", symbol=risk["symbol"], strategy=risk["strategy"], side=risk["side"],
