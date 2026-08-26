@@ -59,3 +59,21 @@ def test_structurally_invalid_signal_is_not_alerted(monkeypatch):
     result = bot._notify_paper_signal({"paper_execution_eligible": False}, "MIXED", "PAPER_RND")
     assert result["sent"] is False
     assert bot.status()["paper_signal_alerts"]["sent_total"] == 0
+
+
+def test_each_cycle_scans_entire_unique_watchlist(monkeypatch):
+    monkeypatch.setattr("auto_bot.get_portfolio_engine", lambda: object())
+    bot = AutoTradingBot(BotConfig(symbols=["NIFTY", "BANKNIFTY", "NIFTY"]))
+    scanned = []
+
+    def scan(symbol, _risk):
+        scanned.append(symbol)
+        bot._last_scan = {"symbol": symbol, "action": "NO_TRADE"}
+
+    monkeypatch.setattr(bot, "_scan_symbol", scan)
+    bot._scan_and_trade()
+    assert scanned == ["NIFTY", "BANKNIFTY"]
+    status = bot.status()
+    assert status["stats"]["cycles_total"] == 1
+    assert status["stats"]["scans_total"] == 2
+    assert set(status["watchlist_coverage"]["latest_by_symbol"]) == {"NIFTY", "BANKNIFTY"}

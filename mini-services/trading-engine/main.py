@@ -1464,7 +1464,7 @@ def auto_bot_start():
     """Start auto-trading bot.
     
     ⚠️ This enables autonomous trading. Bot will:
-    - Scan every 30s for signals
+    - Scan the full configured watchlist every 30s for signals
     - Execute paper trades when regime is favorable + confidence > 65
     - Respect kill switch + daily loss limit + max positions
     - Send Telegram alerts on each execution

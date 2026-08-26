@@ -58,7 +58,9 @@ def test_position_sizing_returns_exchange_lots(tmp_path, monkeypatch):
     assert sizing["risk_budget"] > 0
 
 
-def test_sparse_history_stays_paper_learning(tmp_path):
+def test_sparse_history_stays_paper_learning(tmp_path, monkeypatch):
+    import trade_journal
+    monkeypatch.setattr(trade_journal, "_journal", trade_journal.TradeJournal(tmp_path / "journal.jsonl"))
     supervisor = AutonomySupervisor(tmp_path)
     governance = supervisor.strategy_governance()["strategies"]
     assert governance

@@ -77,7 +77,7 @@ class AutoTradingBot:
         bot.start()  # begins background loop
     
     The bot will:
-      1. Every scan_interval_seconds, pick a random symbol
+      1. Every scan_interval_seconds, scan the full configured watchlist
       2. Classify regime for that symbol
       3. If regime says TRADE OK, pick a recommended strategy
       4. Generate signal for that strategy + symbol
@@ -94,9 +94,11 @@ class AutoTradingBot:
         self._trades_today = 0
         self._last_reset_date = None
         self._scan_count = 0
+        self._cycle_count = 0
         self._execution_count = 0
         self._rejection_count = 0
         self._last_scan: Optional[Dict] = None
+        self._symbol_scans: Dict[str, Dict] = {}
         self._signal_alert_times: Dict[str, float] = {}
         self._signal_alert_count = 0
         self._last_signal_alert: Optional[Dict] = None
@@ -185,9 +187,11 @@ class AutoTradingBot:
     def reset_session_stats(self) -> None:
         self._trades_today = 0
         self._scan_count = 0
+        self._cycle_count = 0
         self._execution_count = 0
         self._rejection_count = 0
         self._last_scan = None
+        self._symbol_scans = {}
         self._last_reset_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
 
     def _check_daily_reset(self):
@@ -208,31 +212,23 @@ class AutoTradingBot:
             time.sleep(self.config.scan_interval_seconds)
 
     def _scan_and_trade(self):
-        """One iteration: pick symbol → classify regime → generate signal → execute."""
-        self._scan_count += 1
+        """Scan the full watchlist once; risk locks block positions, not research."""
         risk_engine = get_portfolio_engine()
-        
-        # === SAFETY CHECK 1: Kill switch ===
-        if risk_engine.limits.kill_switch:
-            logger.warning("Auto bot: kill switch active, skipping scan")
-            return
-        
-        # === SAFETY CHECK 2: Daily loss limit ===
-        if risk_engine._daily_loss_lock:
-            logger.warning("Auto bot: daily loss limit hit, skipping scan")
-            return
-        
-        # === SAFETY CHECK 3: Max trades today ===
-        if self._trades_today >= self.config.max_trades_per_day:
-            logger.warning(f"Auto bot: max trades per day ({self.config.max_trades_per_day}) reached")
-            return
-        
-        # === SAFETY CHECK 4: Max open positions ===
-        if len(risk_engine.positions) >= risk_engine.limits.max_open_positions:
-            return  # silently skip — normal condition
-        
-        # Pick a random symbol to scan
-        symbol = random.choice(self.config.symbols)
+        self._cycle_count += 1
+        for symbol in list(dict.fromkeys(self.config.symbols)):
+            self._scan_count += 1
+            previous = self._last_scan
+            self._scan_symbol(symbol, risk_engine)
+            if self._last_scan is not previous and self._last_scan and self._last_scan.get("symbol") == symbol:
+                self._symbol_scans[symbol] = self._last_scan
+            else:
+                self._symbol_scans[symbol] = {
+                    "symbol": symbol, "action": "NO_SIGNAL", "reason": "No qualifying signal generated",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+
+    def _scan_symbol(self, symbol: str, risk_engine) -> None:
+        """Classify and report one symbol, then request a paper position if risk allows."""
         
         # Classify regime
         try:
@@ -245,7 +241,7 @@ class AutoTradingBot:
             logger.error(f"Auto bot: regime classification failed for {symbol}: {e}")
             return
         
-        # === SAFETY CHECK 5: Regime must be TRADE OK ===
+        # Regime must be TRADE OK before a candidate is generated.
         if not routing.should_trade:
             self._last_scan = {
                 "symbol": symbol,
@@ -346,7 +342,10 @@ class AutoTradingBot:
         
         # Execute via paper trading engine
         execution_engine = get_execution_engine()
-        result = execution_engine.process_signal(signal)
+        if self._trades_today >= self.config.max_trades_per_day:
+            result = {"accepted": False, "reason": f"Daily paper trade limit {self.config.max_trades_per_day} reached"}
+        else:
+            result = execution_engine.process_signal(signal)
         get_paper_signal_journal().record_outcome(
             paper_signal_id,
             "POSITION_OPENED" if result.get("accepted") else "RISK_BLOCKED",
@@ -435,12 +434,15 @@ class AutoTradingBot:
             "strategy_blacklist": list(self.config.strategy_blacklist),
             "stats": {
                 "scans_total": self._scan_count,
+                "cycles_total": self._cycle_count,
                 "executions_total": self._execution_count,
                 "rejections_total": self._rejection_count,
                 "trades_today": self._trades_today,
                 "execution_rate": round(self._execution_count / max(1, self._scan_count) * 100, 1),
             },
             "paper_signal_alerts": {"sent_total": self._signal_alert_count, "last": self._last_signal_alert},
+            "watchlist_coverage": {"symbols_per_cycle": len(set(self.config.symbols)),
+                                   "latest_by_symbol": self._symbol_scans},
             "last_scan": self._last_scan,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
