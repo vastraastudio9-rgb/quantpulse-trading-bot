@@ -24,6 +24,9 @@ def test_research_policy_is_always_paper_only(tmp_path):
     restored = load_policy(path)
     assert policy["paper_only"] is True
     assert policy["live_eligible"] is False
+    assert policy["live_execution_enabled"] is False
+    assert policy["research_active"] is True
+    assert policy["paper_trading_active"] is True
     # The source depends on whether the local normalized store has approved
     # real candles. The safety invariant must hold for either evidence path.
     assert restored["data_source"] == policy["data_source"]

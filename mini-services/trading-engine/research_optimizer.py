@@ -112,6 +112,9 @@ def run_research(
         "data_source": real_sources[0] if len(real_sources) == 1 and len(data_sources) == 1 else "+".join(sorted(data_sources)),
         "evidence_grade": "REAL_MARKET" if real_sources and len(real_sources) == len(data_sources) else "ENGINEERING_ONLY",
         "live_eligible": False,
+        "live_execution_enabled": False,
+        "research_active": True,
+        "paper_trading_active": True,
         "methodology": "60% train, 20% validation selection, 20% untouched holdout; costs and slippage enabled",
         "approved_by_symbol": per_symbol,
         "approved_count": len(approved), "candidates_tested": len(results),
@@ -133,7 +136,14 @@ def run_research(
 def load_policy(path: Optional[Path] = None) -> Dict:
     path = path or Path(__file__).parent / "data" / "research-policy.json"
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        policy = json.loads(path.read_text(encoding="utf-8"))
+        policy.setdefault("research_active", True)
+        policy.setdefault("paper_trading_active", True)
+        policy["live_execution_enabled"] = bool(
+            policy.get("live_eligible", False) and policy.get("mode") != "RISK_OFF"
+        )
+        return policy
     except (FileNotFoundError, OSError, ValueError):
         return {"mode": "RISK_OFF", "paper_only": True, "live_eligible": False,
+                "live_execution_enabled": False, "research_active": True, "paper_trading_active": True,
                 "approved_by_symbol": {}, "limitations": ["No validated research policy available"]}

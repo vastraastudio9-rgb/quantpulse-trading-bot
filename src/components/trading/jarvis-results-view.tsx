@@ -93,11 +93,20 @@ export function JarvisResultsView() {
             <ShieldCheck className={cn("w-5 h-5 shrink-0 mt-0.5", policy.mode === "RISK_OFF" ? "text-red-400" : "text-emerald-400")} />
             <div>
               <div className={cn("text-sm font-semibold", policy.mode === "RISK_OFF" ? "text-red-400" : "text-emerald-400")}>
-                Current research policy: {policy.mode}
+                JARVIS — {policy.mode === "RISK_OFF" ? "RISK OFF" : policy.mode}
               </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                {policy.approved_count} approved strategies • {policy.data_source} • {policy.evidence_grade} • {policy.paper_only ? "Paper only" : "Live review allowed"}
-              </div>
+              {policy.mode === "RISK_OFF" ? (
+                <div className="text-xs text-muted-foreground mt-1 space-y-1">
+                  <div className="text-foreground">Live execution is disabled.</div>
+                  <div>Strategy R&amp;D and paper trading remain active. Strategies can be researched, backtested, optimized, and paper-tested using REAL_MARKET data.</div>
+                  <div>No live orders will be placed.</div>
+                  <div className="text-[10px]">{policy.approved_count} approved • {policy.data_source} • {policy.evidence_grade}</div>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground mt-1">
+                  {policy.approved_count} approved strategies • {policy.data_source} • {policy.evidence_grade} • {policy.paper_only ? "Paper only" : "Live review allowed"}
+                </div>
+              )}
             </div>
           </div>
         </Card>

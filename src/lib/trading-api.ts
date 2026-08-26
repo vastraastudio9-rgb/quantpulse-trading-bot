@@ -175,6 +175,9 @@ export interface ResearchPolicy {
   data_source: string;
   evidence_grade: string;
   live_eligible: boolean;
+  live_execution_enabled: boolean;
+  research_active: boolean;
+  paper_trading_active: boolean;
   approved_count: number;
   generated_at?: string | null;
 }

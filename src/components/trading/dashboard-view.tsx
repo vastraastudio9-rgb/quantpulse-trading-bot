@@ -58,10 +58,12 @@ export function DashboardView() {
           <div className="flex items-start gap-3">
             <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
             <div>
-              <div className="text-sm font-semibold text-red-400">JARVIS RISK OFF — no strategy is approved</div>
+              <div className="text-sm font-semibold text-red-400">JARVIS — RISK OFF</div>
+              <div className="text-xs text-foreground mt-1">Live execution is disabled.</div>
               <div className="text-xs text-muted-foreground mt-1">
-                Signals below are research candidates only. Data: {policy.data_source} • Evidence: {policy.evidence_grade} • Paper trading only
+                Strategy R&amp;D and paper trading remain active. New and existing strategies can be researched, backtested, optimized, and paper-tested using REAL_MARKET data. No live orders will be placed.
               </div>
+              <div className="text-[10px] text-muted-foreground mt-1">Current evidence: {policy.data_source} • {policy.evidence_grade}</div>
             </div>
           </div>
         </Card>

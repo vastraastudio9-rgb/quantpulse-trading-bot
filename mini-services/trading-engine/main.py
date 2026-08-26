@@ -378,6 +378,9 @@ def dashboard():
             "data_source": policy.get("data_source", "UNKNOWN"),
             "evidence_grade": policy.get("evidence_grade", "UNKNOWN"),
             "live_eligible": policy.get("live_eligible", False),
+            "live_execution_enabled": policy.get("live_execution_enabled", False),
+            "research_active": policy.get("research_active", True),
+            "paper_trading_active": policy.get("paper_trading_active", True),
             "approved_count": policy.get("approved_count", 0),
             "generated_at": policy.get("generated_at"),
         },
@@ -2062,7 +2065,7 @@ def _overall_recommendation(trade: int, no_trade: int, wait: int) -> str:
     if total == 0:
         return "NO_DATA"
     if no_trade >= total * 0.6:
-        return "RISK_OFF — Stay out of market. Most instruments in unfavorable regime."
+        return "RISK_OFF — Live execution disabled. Strategy R&D and paper testing remain active."
     if trade >= total * 0.5:
         return "TRADE — Favorable conditions. Execute recommended strategies with paper mode."
     if wait >= total * 0.4:
