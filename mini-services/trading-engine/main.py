@@ -70,6 +70,7 @@ from release_manager import release_status
 from jarvis_assistant import briefing
 from shadow_lab import get_shadow_lab
 from research_intelligence import StrategyIntelligence, get_experiment_registry, backup_research_state
+from composable_stack import get_stack_manifest
 
 
 @asynccontextmanager
@@ -793,6 +794,7 @@ def research():
     """Get GitHub repos research summary."""
     return {
         "repos": RESEARCH_REPOS,
+        "implementation": get_stack_manifest(),
         "recommended_stack": {
             "execution": "OpenAlgo + pykiteconnect (Indian F&O + MCX)",
             "forex": "MetaTrader5 Python package (XAUUSD, EURUSD, GBPUSD)",
