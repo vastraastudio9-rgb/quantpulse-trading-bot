@@ -12,10 +12,13 @@ entry/exit, P&L, hold time, exit reason). Provides analytics for the learning lo
 This closes the learning loop: SIGNAL → DECISION → EXECUTION → RESULT → ANALYSIS → IMPROVEMENT.
 """
 import math
+import json
+import os
 import threading
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 from collections import defaultdict
+from pathlib import Path
 import numpy as np
 
 from observability import logger
@@ -24,9 +27,29 @@ from observability import logger
 class TradeJournal:
     """Records and analyzes closed trades for the learning loop."""
 
-    def __init__(self):
+    def __init__(self, path: Optional[Path] = None):
         self._lock = threading.RLock()
         self._trades: List[Dict] = []
+        data_dir = Path(os.getenv("JARVIS_STATE_DIR") or Path(__file__).parent / "data")
+        self._path = Path(path or data_dir / "trade_journal.jsonl")
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            rows = []
+            for line in self._path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    value = json.loads(line)
+                    if isinstance(value, dict):
+                        rows.append(value)
+            self._trades = rows
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            self._trades = []
+
+    def _append(self, trade: Dict) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with self._path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(trade, separators=(",", ":"), default=str) + "\n")
 
     def record_trade(self, trade: Dict) -> None:
         """Record a closed trade with full context.
@@ -55,6 +78,7 @@ class TradeJournal:
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
             }
             self._trades.append(enriched)
+            self._append(enriched)
             
             logger.trade(
                 "Trade recorded in journal",
@@ -145,6 +169,13 @@ class TradeJournal:
             "min_hold_minutes": round(min(hold_times), 1) if hold_times else 0,
             "max_hold_minutes": round(max(hold_times), 1) if hold_times else 0,
         }
+        fills = [trade for trade in trades if "entry_slippage" in trade]
+        execution_quality = {
+            "trades_measured": len(fills),
+            "avg_entry_slippage": round(float(np.mean([t.get("entry_slippage", 0) for t in fills])), 4) if fills else 0,
+            "total_estimated_costs": round(sum(float(t.get("estimated_costs", 0) or 0) for t in fills), 2),
+            "paper_model": "ADVERSE_TICKS_PLUS_COMMISSION",
+        }
 
         return {
             "summary": summary,
@@ -156,6 +187,7 @@ class TradeJournal:
             "streaks": streaks,
             "time_analysis": time_analysis,
             "hold_analysis": hold_analysis,
+            "execution_quality": execution_quality,
             "analyzed_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -178,6 +210,7 @@ class TradeJournal:
                 "total_pnl": round(sum(pnls), 2),
                 "avg_pnl": round(float(np.mean(pnls)), 2) if pnls else 0,
                 "expectancy": round(float(np.mean(pnls)), 2) if pnls else 0,
+                "profit_factor": round(sum(wins) / abs(sum(losses)), 2) if losses and sum(losses) != 0 else (99.99 if wins else 0),
             }
         return result
 
@@ -241,6 +274,10 @@ class TradeJournal:
         with self._lock:
             count = len(self._trades)
             self._trades.clear()
+            try:
+                self._path.unlink(missing_ok=True)
+            except OSError:
+                pass
             return count
 
 

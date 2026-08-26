@@ -45,6 +45,9 @@ class TestPaperExecutionEngine:
         signal = generate_signal("VRP_HARVEST", "NIFTY")
         fresh_engine.process_signal(signal)
         assert len(fresh_engine.risk_engine.positions) == 1
+        position = fresh_engine.risk_engine.positions[0]
+        assert position.entry_slippage > 0
+        assert position.estimated_costs > 0
 
     def test_close_position(self, fresh_engine):
         """Close a position and verify P&L recorded."""

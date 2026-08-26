@@ -46,6 +46,9 @@ class Position:
     unrealized_pnl: float = 0
     opened_at: str = ""
     legs: List[Dict] = field(default_factory=list)
+    signal_price: float = 0
+    entry_slippage: float = 0
+    estimated_costs: float = 0
 
     def to_dict(self) -> Dict:
         return {
@@ -65,6 +68,9 @@ class Position:
             "unrealized_pnl": round(self.unrealized_pnl, 2),
             "opened_at": self.opened_at,
             "legs": self.legs,
+            "signal_price": round(self.signal_price, 4),
+            "entry_slippage": round(self.entry_slippage, 4),
+            "estimated_costs": round(self.estimated_costs, 2),
         }
 
 
@@ -267,6 +273,7 @@ class PortfolioRiskEngine:
                 pnl = (exit_price - pos.entry_price) * pos.quantity
             else:
                 pnl = (pos.entry_price - exit_price) * pos.quantity
+            pnl -= pos.estimated_costs
 
             self.realized_pnl_today += pnl
             self.realized_pnl_total += pnl
@@ -281,6 +288,9 @@ class PortfolioRiskEngine:
                 "exit_price": exit_price,
                 "quantity": pos.quantity,
                 "pnl": round(pnl, 2),
+                "signal_price": pos.signal_price,
+                "entry_slippage": pos.entry_slippage,
+                "estimated_costs": pos.estimated_costs,
                 "exit_reason": exit_reason,
                 "entry_time": pos.opened_at,
                 "exit_time": datetime.now(timezone.utc).isoformat(),

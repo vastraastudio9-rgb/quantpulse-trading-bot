@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 from dataclasses import dataclass
 import random
+import os
 
 from risk_engine import PortfolioRiskEngine, Position, get_portfolio_engine
 from market_data import get_live_quote, INSTRUMENTS
@@ -90,7 +91,11 @@ class PaperExecutionEngine:
             lot_size = int(cfg["lot_size"])
             requested_quantity = int(signal.get("quantity", lot_size) or lot_size)
             quantity = max(lot_size, (requested_quantity // lot_size) * lot_size)
-            entry_price = signal.get("entry_price", 0)
+            signal_price = float(signal.get("entry_price", 0) or 0)
+            slippage_ticks = max(0, int(os.getenv("PAPER_SLIPPAGE_TICKS", "2")))
+            entry_slippage = float(cfg["tick_size"]) * slippage_ticks
+            entry_price = signal_price + entry_slippage if side == "LONG" else max(0.05, signal_price - entry_slippage)
+            commission = max(0.0, float(os.getenv("PAPER_COMMISSION_PER_ORDER", "20")))
             stop_loss = signal.get("stop_loss", 0)
             take_profit = signal.get("target", 0)
             
@@ -150,6 +155,9 @@ class PaperExecutionEngine:
                 unrealized_pnl=0,
                 opened_at=datetime.now(timezone.utc).isoformat(),
                 legs=legs,
+                signal_price=signal_price,
+                entry_slippage=entry_slippage,
+                estimated_costs=commission * 2,
             )
             
             # Pre-trade risk check
@@ -172,6 +180,9 @@ class PaperExecutionEngine:
                     "reason": "Position opened",
                     "side": side,
                     "entry_price": entry_price,
+                    "signal_price": signal_price,
+                    "entry_slippage": entry_slippage,
+                    "estimated_costs": commission * 2,
                     "quantity": quantity,
                     "stop_loss": stop_loss,
                     "take_profit": take_profit,
@@ -251,6 +262,9 @@ class PaperExecutionEngine:
                         "delta_at_entry": pos.delta,
                         "theta_at_entry": pos.theta,
                         "vega_at_entry": pos.vega,
+                        "signal_price": pos.signal_price,
+                        "entry_slippage": pos.entry_slippage,
+                        "estimated_costs": pos.estimated_costs,
                     })
                 except Exception as e:
                     logger.error(f"Failed to record trade in journal: {e}")

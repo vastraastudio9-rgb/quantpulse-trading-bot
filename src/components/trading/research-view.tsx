@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Star, GitFork, ExternalLink, BookOpen, Lightbulb, Layers } from "lucide-react";
+import { Star, GitFork, ExternalLink, BookOpen, Lightbulb, Layers, FlaskConical, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { tradingApi, type ResearchRepo } from "@/lib/trading-api";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -15,21 +16,25 @@ export function ResearchView() {
   const [loading, setLoading] = useState(true);
   const [catalog, setCatalog] = useState<Array<{ source: string; symbol: string; timeframe: string; rows: number; start: string; end: string }>>([]);
   const [policy, setPolicy] = useState<{ mode: string; data_source: string; evidence_grade?: string } | null>(null);
+  const [rnd, setRnd] = useState<any>(null);
+  const [rndBusy, setRndBusy] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     (async () => {
       try {
-        const [r, catalogRes, policyRes] = await Promise.all([
+        const [r, catalogRes, policyRes, rndRes] = await Promise.all([
           tradingApi.getResearch(),
           fetch("/api/jarvis/data/catalog?XTransformPort=3030"),
           fetch("/api/jarvis/research-policy?XTransformPort=3030"),
+          fetch("/api/jarvis/rnd/intraday/latest?XTransformPort=3030"),
         ]);
         setRepos(r.repos);
         setStack(r.recommended_stack);
         setInsights(r.key_insights);
         if (catalogRes.ok) setCatalog((await catalogRes.json()).items || []);
         if (policyRes.ok) setPolicy(await policyRes.json());
+        if (rndRes.ok) setRnd(await rndRes.json());
         setLoading(false);
       } catch (e: any) {
         toast({ title: "Failed to load research", description: e.message, variant: "destructive" });
@@ -37,6 +42,24 @@ export function ResearchView() {
       }
     })();
   }, [toast]);
+
+  const runIntradayResearch = async () => {
+    setRndBusy(true);
+    try {
+      const response = await fetch("/api/jarvis/rnd/intraday/run?XTransformPort=3030", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: "NIFTYBEES", source: "YAHOO_PROXY", lot_size: 1, tick_size: 0.01 }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail?.message || payload.detail || "Research failed");
+      setRnd(payload);
+      toast({ title: "Intraday R&D completed", description: `${payload.candidates_tested || 0} candidates tested · ${payload.status}` });
+    } catch (e: any) {
+      toast({ title: "Intraday R&D failed", description: e.message, variant: "destructive" });
+    } finally {
+      setRndBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -74,6 +97,25 @@ export function ResearchView() {
             {item.symbol} · {item.timeframe} · {item.rows.toLocaleString()} · {item.source}
           </Badge>
         ))}</div>}
+      </Card>
+
+      <Card className="p-4 border-violet-500/30 bg-violet-500/5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-sm font-semibold"><FlaskConical className="h-4 w-4 text-violet-400" />Automated Intraday R&amp;D</h3>
+            <p className="mt-1 text-xs text-muted-foreground">VWAP pullback and mean-reversion · costs · walk-forward · untouched holdout · paper-only gates.</p>
+          </div>
+          <Button size="sm" onClick={runIntradayResearch} disabled={rndBusy}>
+            {rndBusy && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}{rndBusy ? "Testing..." : "Run Full R&D"}
+          </Button>
+        </div>
+        {rnd && rnd.status !== "NOT_RUN" && <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-5 text-xs">
+          <EvidenceMetric label="Decision" value={String(rnd.status).replace(/_/g, " ")} />
+          <EvidenceMetric label="Strategy" value={rnd.selected_config?.strategy || "NONE"} />
+          <EvidenceMetric label="Candidates" value={String(rnd.candidates_tested || 0)} />
+          <EvidenceMetric label="Holdout Return" value={`${rnd.holdout?.return_pct ?? 0}%`} />
+          <EvidenceMetric label="Holdout PF" value={String(rnd.holdout?.profit_factor ?? 0)} />
+        </div>}
       </Card>
       {/* Recommended stack */}
       <Card className="p-4">

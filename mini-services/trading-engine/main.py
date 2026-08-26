@@ -59,6 +59,7 @@ from nse_data_adapter import download_nse_index
 from broker_data_adapter import download_broker_candles
 from futures_research import near_month_stock_futures, run_futures_orb_batch
 from kite_rnd_pipeline import run_nifty_orb_pipeline
+from intraday_research import research_intraday_strategies
 
 
 @asynccontextmanager
@@ -1521,6 +1522,13 @@ class KiteORBRnDRequest(BaseModel):
     initial_capital: float = 100000
 
 
+class FullIntradayRnDRequest(BaseModel):
+    symbol: str = "NIFTYBEES"
+    source: str = "YAHOO_PROXY"
+    lot_size: int = 1
+    tick_size: float = .01
+
+
 @app.get("/api/jarvis/autonomy/status")
 def autonomy_status():
     return get_autonomy_supervisor().status()
@@ -1757,6 +1765,27 @@ def kite_nifty_orb_rnd(req: KiteORBRnDRequest):
     except Exception as exc:
         logger.error("kite_nifty_orb_pipeline_failed", error=str(exc))
         raise HTTPException(status_code=502, detail=f"Kite R&D pipeline failed: {exc}")
+
+
+@app.get("/api/jarvis/rnd/intraday/latest")
+def intraday_rnd_latest():
+    target = Path(__file__).parent / "data" / "intraday-research.json"
+    if not target.is_file():
+        return {"status": "NOT_RUN", "paper_only": True, "live_eligible": False}
+    return __import__("json").loads(target.read_text(encoding="utf-8"))
+
+
+@app.post("/api/jarvis/rnd/intraday/run")
+def intraday_rnd_run(req: FullIntradayRnDRequest):
+    store = get_market_data_store()
+    quality = store.quality(req.symbol, "5m", req.source)
+    if quality["status"] != "PASS":
+        raise HTTPException(status_code=422, detail={"message": "Five-minute data failed quality gate", "quality": quality})
+    if req.lot_size <= 0 or req.tick_size <= 0:
+        raise HTTPException(status_code=400, detail="lot_size and tick_size must be positive")
+    bars = store.bars(req.symbol, "5m", req.source)
+    output = Path(__file__).parent / "data" / "intraday-research.json"
+    return research_intraday_strategies(bars, req.symbol, req.lot_size, req.tick_size, output)
 
 
 # ============ TRADE JOURNAL ENDPOINTS ============
