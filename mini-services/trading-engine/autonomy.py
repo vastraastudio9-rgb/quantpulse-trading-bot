@@ -24,6 +24,22 @@ from observability import logger, metrics
 IST = ZoneInfo("Asia/Kolkata")
 
 
+def automation_readiness(checks: List[Dict]) -> Dict:
+    """Calculate honest paper/R&D automation readiness; LIVE is intentionally excluded."""
+    total = len(checks)
+    passed = sum(1 for check in checks if check.get("ok"))
+    score = round((passed / total) * 100) if total else 0
+    return {
+        "score_pct": score,
+        "passed": passed,
+        "total": total,
+        "checks": checks,
+        "blockers": [check["label"] for check in checks if not check.get("ok")],
+        "scope": "PAPER_RND_AUTOMATION",
+        "live_execution_automated": False,
+    }
+
+
 @dataclass
 class AutonomyConfig:
     enabled: bool = False
@@ -370,7 +386,25 @@ class AutonomySupervisor:
 
     def status(self) -> Dict:
         from research_optimizer import load_policy
+        from auto_bot import get_auto_bot
+        from brokers import telegram_bot, zerodha
+        from execution_engine import get_execution_engine
+        from trading_mode import get_trading_mode
         research_policy = load_policy()
+        mode = get_trading_mode().status()
+        bot_running = get_auto_bot().status()["running"]
+        monitor_running = get_execution_engine().status()["monitoring_active"]
+        readiness = automation_readiness([
+            {"key": "supervisor", "label": "Autonomy supervisor running", "ok": self._running},
+            {"key": "scanner", "label": "Automatic strategy scanner running", "ok": bot_running},
+            {"key": "position_monitor", "label": "Paper position monitor running", "ok": monitor_running},
+            {"key": "reconciliation", "label": "Paper account reconciled", "ok": self._last_reconciliation.get("status") == "MATCHED"},
+            {"key": "real_market", "label": "REAL_MARKET research evidence available", "ok": research_policy.get("evidence_grade") == "REAL_MARKET"},
+            {"key": "research", "label": "Strategy R&D enabled", "ok": research_policy.get("research_active", True)},
+            {"key": "paper", "label": "Paper trading enabled", "ok": mode.get("mode") == "PAPER" and research_policy.get("paper_trading_active", True)},
+            {"key": "telegram", "label": "Telegram alerts configured", "ok": telegram_bot.is_configured()},
+            {"key": "kite", "label": "Kite real-time broker feed configured", "ok": zerodha.is_configured()},
+        ])
         return {"enabled": self.config.enabled, "running": self._running, "paper_only": True,
                 "config": asdict(self.config), "heartbeat": self._last_heartbeat,
                 "workflow_phase": self._last_workflow_phase, "health": self._last_health,
@@ -380,6 +414,7 @@ class AutonomySupervisor:
                                     "data_source": research_policy.get("data_source", "NONE"),
                                     "approved_by_symbol": research_policy.get("approved_by_symbol", {}),
                                     "live_eligible": False},
+                "automation_readiness": readiness,
                 "alerts": self._alerts[-20:], "recent_decisions": self.decisions(20),
                 "timestamp": datetime.now(timezone.utc).isoformat()}
 

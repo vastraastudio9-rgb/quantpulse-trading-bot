@@ -944,8 +944,22 @@ def jarvis_health():
     # Engine version
     engine_version = "JARVIS-v2"
     
-    # Test counts (if pytest available)
-    test_info = {"tests_passing": 99, "tests_total": 99, "last_run": "2026-08-25"}
+    # Test inventory is discovered from source; passing count comes only from a
+    # verified local test-run artifact and is never hard-coded.
+    tests_root = Path(__file__).parent / "tests"
+    tests_total = sum(
+        1 for path in tests_root.glob("test_*.py")
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.lstrip().startswith("def test_")
+    )
+    test_info = {"tests_passing": 0, "tests_total": tests_total, "last_run": None}
+    try:
+        verified = __import__("json").loads((Path(__file__).parent / "data" / "test-status.json").read_text(encoding="utf-8"))
+        if int(verified.get("tests_total", -1)) == tests_total:
+            test_info = {"tests_passing": int(verified.get("tests_passing", 0)),
+                         "tests_total": tests_total, "last_run": verified.get("last_run")}
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        pass
     
     return {
         "status": "OK" if cpu < 90 and mem < 90 else "DEGRADED",

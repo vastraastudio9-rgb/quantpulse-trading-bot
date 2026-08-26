@@ -69,6 +69,15 @@ interface AutonomyStatus {
   governance: { strategies: Record<string, { state: string; reason: string; trades: number }> };
   alerts: Array<{ level: string; code: string; message: string }>;
   recent_decisions: Array<{ timestamp: string; action: string; subject: string; reason: string }>;
+  automation_readiness: {
+    score_pct: number;
+    passed: number;
+    total: number;
+    scope: string;
+    live_execution_automated: boolean;
+    blockers: string[];
+    checks: Array<{ key: string; label: string; ok: boolean }>;
+  };
 }
 
 export function JarvisView() {
@@ -260,12 +269,36 @@ export function JarvisView() {
           </Button>
         </div>
         {autonomy && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3 text-xs">
-            <Metric label="Data Health" value={autonomy.health.status} positive={autonomy.health.status === "OK"} negative={autonomy.health.status === "FAILED"} />
-            <Metric label="Recoveries" value={String(autonomy.recoveries)} />
-            <Metric label="Paper Trades" value={String(autonomy.promotion.closed_paper_trades)} />
-            <Metric label="Algo Mode" value={autonomy.research_policy.mode} warning={autonomy.research_policy.mode === "RISK_OFF"} />
-          </div>
+          <>
+            <div className="mt-4 rounded-lg border border-cyan-500/20 bg-background/40 p-3">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Paper + R&amp;D Automation Readiness</div>
+                  <div className="text-3xl font-semibold tabular-nums text-cyan-400">{autonomy.automation_readiness.score_pct}%</div>
+                </div>
+                <div className="text-right text-[10px] text-muted-foreground">
+                  {autonomy.automation_readiness.passed}/{autonomy.automation_readiness.total} systems ready<br />Live activation remains manual
+                </div>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded bg-muted">
+                <div className="h-full bg-cyan-400 transition-all" style={{ width: `${autonomy.automation_readiness.score_pct}%` }} />
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                {autonomy.automation_readiness.checks.map((check) => (
+                  <div key={check.key} className="flex items-center gap-1.5 text-[10px]">
+                    <span className={check.ok ? "text-emerald-400" : "text-amber-400"}>{check.ok ? "●" : "○"}</span>
+                    <span className={check.ok ? "text-muted-foreground" : "text-amber-300"}>{check.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3 text-xs">
+              <Metric label="Data Health" value={autonomy.health.status} positive={autonomy.health.status === "OK"} negative={autonomy.health.status === "FAILED"} />
+              <Metric label="Recoveries" value={String(autonomy.recoveries)} />
+              <Metric label="Paper Trades" value={String(autonomy.promotion.closed_paper_trades)} />
+              <Metric label="Algo Mode" value={autonomy.research_policy.mode} warning={autonomy.research_policy.mode === "RISK_OFF"} />
+            </div>
+          </>
         )}
       </Card>
 

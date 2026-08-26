@@ -4,7 +4,17 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from autonomy import AutonomySupervisor
+from autonomy import AutonomySupervisor, automation_readiness
+
+
+def test_automation_readiness_is_evidence_based_and_excludes_live():
+    result = automation_readiness([
+        {"key": "one", "label": "One", "ok": True},
+        {"key": "two", "label": "Two", "ok": False},
+    ])
+    assert result["score_pct"] == 50
+    assert result["blockers"] == ["Two"]
+    assert result["live_execution_automated"] is False
 
 
 def test_supervisor_defaults_to_disabled_and_paper_only(tmp_path):

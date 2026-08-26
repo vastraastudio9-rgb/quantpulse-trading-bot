@@ -28,7 +28,7 @@ const VIEW_META: Record<NavView, { title: string; subtitle: string }> = {
   research: { title: "Research & Recommended Stack", subtitle: "Best open-source trading bot repos on GitHub" },
   regime: { title: "Market Regime Monitor", subtitle: "Multi-dimensional regime classification + strategy routing" },
   leaderboard: { title: "Strategy Leaderboard", subtitle: "Rank all strategies by Sharpe, return, win rate" },
-  jarvis: { title: "JARVIS Results", subtitle: "One-click autonomous analysis — regime + validation + recommendations" },
+  jarvis: { title: "JARVIS Automation Center", subtitle: "Paper/R&D automation, risk control, governance and autonomous analysis" },
   settings: { title: "Settings & Risk Management", subtitle: "Risk limits, notifications, kill switch" },
 };
 
@@ -70,7 +70,12 @@ export default function Home() {
           {view === "research" && <ResearchView />}
           {view === "regime" && <RegimeView />}
           {view === "leaderboard" && <LeaderboardView />}
-          {view === "jarvis" && <JarvisResultsView />}
+          {view === "jarvis" && (
+            <div className="space-y-5">
+              <JarvisView />
+              <JarvisResultsView />
+            </div>
+          )}
           {view === "settings" && <SettingsView />}
         </main>
       </div>
