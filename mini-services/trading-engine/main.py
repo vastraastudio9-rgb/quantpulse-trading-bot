@@ -58,6 +58,7 @@ from orb_algorithm import ORBConfig, run_orb_backtest
 from nse_data_adapter import download_nse_index
 from broker_data_adapter import download_broker_candles
 from futures_research import near_month_stock_futures, run_futures_orb_batch
+from kite_rnd_pipeline import run_nifty_orb_pipeline
 
 
 @asynccontextmanager
@@ -1499,6 +1500,11 @@ class FuturesResearchRequest(BaseModel):
     max_symbols: int = 50
 
 
+class KiteORBRnDRequest(BaseModel):
+    days: int = 120
+    initial_capital: float = 100000
+
+
 @app.get("/api/jarvis/autonomy/status")
 def autonomy_status():
     return get_autonomy_supervisor().status()
@@ -1716,6 +1722,22 @@ def orb_backtest_endpoint(req: ORBBacktestRequest):
         raise HTTPException(status_code=400, detail=f"Invalid ORB configuration: {exc}")
     cfg = INSTRUMENTS[req.symbol]
     return run_orb_backtest(bars, req.symbol, cfg["lot_size"], cfg["tick_size"], req.initial_capital, config)
+
+
+@app.post("/api/jarvis/rnd/kite-nifty-orb")
+def kite_nifty_orb_rnd(req: KiteORBRnDRequest):
+    """One-click authenticated NIFTY 5m ingestion, quality gate, and paper ORB backtest."""
+    if not zerodha_broker.is_configured():
+        raise HTTPException(status_code=409, detail="Connect today's Kite session in Brokers first")
+    try:
+        return run_nifty_orb_pipeline(req.days, req.initial_capital)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:
+        logger.error("kite_nifty_orb_pipeline_failed", error=str(exc))
+        raise HTTPException(status_code=502, detail=f"Kite R&D pipeline failed: {exc}")
 
 
 # ============ TRADE JOURNAL ENDPOINTS ============

@@ -87,6 +87,8 @@ export function JarvisView() {
   const [activatingKill, setActivatingKill] = useState(false);
   const [autonomy, setAutonomy] = useState<AutonomyStatus | null>(null);
   const [autonomyBusy, setAutonomyBusy] = useState(false);
+  const [rndBusy, setRndBusy] = useState(false);
+  const [rndResult, setRndResult] = useState<{ status: string; quality?: { score: number; rows: number }; backtest?: { metrics?: { total_trades: number; total_return_pct: number; max_drawdown_pct: number } } } | null>(null);
   const { toast } = useToast();
 
   const loadData = async () => {
@@ -170,6 +172,29 @@ export function JarvisView() {
     }
   };
 
+  const runKiteOrbResearch = async () => {
+    setRndBusy(true);
+    try {
+      const res = await fetch("/api/jarvis/rnd/kite-nifty-orb?XTransformPort=3030", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days: 120, initial_capital: 100000 }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.detail || "Kite R&D pipeline failed");
+      setRndResult(payload);
+      toast({
+        title: payload.status === "COMPLETED" ? "Kite ORB research completed" : "Market data rejected",
+        description: payload.status === "COMPLETED" ? "NIFTY 5-minute data passed quality checks and the paper backtest finished." : "Backtest was blocked by the data-quality gate.",
+        variant: payload.status === "COMPLETED" ? "default" : "destructive",
+      });
+    } catch (e: any) {
+      toast({ title: "Kite R&D unavailable", description: e.message, variant: "destructive" });
+    } finally {
+      setRndBusy(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -225,6 +250,31 @@ export function JarvisView() {
             </Button>
           )}
         </div>
+      </Card>
+
+      <Card className="p-4 border-violet-500/30 bg-violet-500/5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Brain className="w-4 h-4 text-violet-400" />
+              <span className="text-sm font-semibold">Kite NIFTY ORB Research</span>
+              <Badge variant="outline" className="text-[9px] border-amber-500/40 text-amber-400">PAPER R&amp;D</Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Downloads 120 days of NIFTY 5-minute candles, validates data, then runs the event-driven ORB backtest.</p>
+          </div>
+          <Button size="sm" onClick={runKiteOrbResearch} disabled={rndBusy}>
+            <Database className={cn("w-3.5 h-3.5 mr-1", rndBusy && "animate-pulse")} />
+            {rndBusy ? "Syncing & Testing..." : "Run Kite ORB R&D"}
+          </Button>
+        </div>
+        {rndResult && (
+          <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4 text-xs">
+            <Metric label="Pipeline" value={rndResult.status.replace(/_/g, " ")} positive={rndResult.status === "COMPLETED"} negative={rndResult.status !== "COMPLETED"} />
+            <Metric label="Data Quality" value={`${rndResult.quality?.score ?? 0}%`} positive={(rndResult.quality?.score ?? 0) >= 90} />
+            <Metric label="Candles" value={String(rndResult.quality?.rows ?? 0)} />
+            <Metric label="Backtest Trades" value={String(rndResult.backtest?.metrics?.total_trades ?? 0)} />
+          </div>
+        )}
       </Card>
 
       {/* Alerts */}
