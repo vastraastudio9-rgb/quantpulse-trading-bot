@@ -23,6 +23,7 @@ import os
 import random
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -53,6 +54,7 @@ from autonomy import get_autonomy_supervisor
 from research_optimizer import load_policy, run_research
 from market_data_store import get_market_data_store
 from orb_algorithm import ORBConfig, run_orb_backtest
+from nse_data_adapter import download_nse_index
 
 app = FastAPI(
     title="Multi-Asset Trading Engine API",
@@ -1400,6 +1402,12 @@ class ORBBacktestRequest(BaseModel):
     config: Optional[Dict] = None
 
 
+class NSEIndexDownloadRequest(BaseModel):
+    symbol: str = "NIFTY"
+    from_date: str = "2021-01-01"
+    to_date: Optional[str] = None
+
+
 @app.get("/api/jarvis/autonomy/status")
 def autonomy_status():
     return get_autonomy_supervisor().status()
@@ -1515,6 +1523,17 @@ def market_data_import_csv(req: MarketDataImportRequest):
 @app.post("/api/jarvis/data/export-parquet")
 def market_data_export_parquet():
     return get_market_data_store().export_parquet()
+
+
+@app.post("/api/jarvis/data/download-nse-index")
+def market_data_download_nse_index(req: NSEIndexDownloadRequest):
+    from datetime import date as date_type
+    try:
+        start = date_type.fromisoformat(req.from_date)
+        end = date_type.fromisoformat(req.to_date) if req.to_date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        return download_nse_index(req.symbol, start, end)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/api/jarvis/backtest/orb")

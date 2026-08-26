@@ -50,6 +50,19 @@ authority over whether the trade may execute.
 
 ## Importing real data
 
+Download free official NSE daily index history through the engine:
+
+```text
+POST /api/jarvis/data/download-nse-index
+{"symbol":"NIFTY","from_date":"2021-01-01","to_date":"2026-08-25"}
+```
+
+Supported symbols are `NIFTY`, `BANKNIFTY`, and `FINNIFTY`. The adapter keeps
+the raw response, records its SHA-256 provenance, and imports normalized daily
+candles into DuckDB. It is for daily research, not intraday ORB validation.
+
+For genuine intraday candles, import a broker or archive CSV:
+
 ```text
 python scripts/import-market-data.py candles.csv --source NSE_ARCHIVE --symbol NIFTY --exchange NSE --timeframe 5m --export-parquet
 ```
@@ -64,7 +77,7 @@ store has no quality-approved dataset.
 
 ## What to revisit
 
-- Add authenticated Upstox/Kite download adapters instead of manual CSV import.
+- Add authenticated Upstox/Kite five-minute download adapters.
 - Cache the daily instrument master so expired derivatives remain identifiable.
 - Store historical option bid/ask snapshots and actual expiry calendars.
 - Add exchange-holiday calendars and corporate-action adjustment.

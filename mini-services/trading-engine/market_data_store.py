@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - installation issue reported by status(
 
 
 ALIASES = {
-    "timestamp": ("timestamp", "date", "datetime", "time", "TIMESTAMP"),
+    "timestamp": ("timestamp", "date", "datetime", "time", "TIMESTAMP", "HistoricalDate"),
     "open": ("open", "open_price", "OPEN", "OPEN_PRICE"),
     "high": ("high", "high_price", "HIGH", "HIGH_PRICE"),
     "low": ("low", "low_price", "LOW", "LOW_PRICE"),

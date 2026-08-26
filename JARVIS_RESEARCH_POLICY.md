@@ -2,25 +2,19 @@
 
 ## Current paper policy
 
-The corrected 1,095-day synthetic research run tested 90 strategy/instrument
-combinations, each with nine stop/target configurations and non-overlapping
-60% training, 20% validation, and 20% untouched holdout periods.
+JARVIS now has 1,400 official NSE NIFTY 50 daily candles from 2021-01-01
+through 2026-08-25. All rows passed the normalized-data quality gate and the
+research run is labeled `NSE_INDEX` / `REAL_MARKET`.
 
-The resulting mode is `BALANCED`. Three instrument routes passed all gates:
-
-| Instrument | Strategy | Stop | Target | Holdout trades | Holdout Sharpe | Profit factor | Max drawdown |
-|---|---|---:|---:|---:|---:|---:|---:|
-| FINNIFTY | Calendar Spread | 40% | 40% | 15 | 2.029 | 3.62 | 11.00% |
-| CRUDEOIL | Long Straddle | 40% | 25% | 26 | 2.901 | 4.63 | 13.36% |
-| XAUUSD | Calendar Spread | 30% | 40% | 15 | 0.962 | 2.74 | 1.87% |
-
-NIFTY and BANKNIFTY were rejected because their simulated drawdown and Monte
-Carlo ruin risk exceeded the policy limits. Perfect-win Forex results were also
-rejected as non-credible.
+The resulting mode is `RISK_OFF`. No strategy passed the full train,
+validation, untouched holdout, drawdown, and Monte Carlo gates. JARVIS will
+therefore place no autonomous trades from this policy. This rejection is the
+correct safe outcome; it must not be overridden by selecting the best-looking
+in-sample result.
 
 ## Important limitation
 
-These results use deterministic synthetic GARCH candles. They validate the
-software and selection process, not real-market profitability. JARVIS therefore
-keeps this policy in paper mode. Broker historical candles, realistic option
-chains, and a sufficient paper-fill record are required before human live review.
+Daily index OHLC cannot accurately replay intraday ORB fills or option
+strategies. Genuine five-minute broker candles, historical option chains with
+bid/ask data, costs, and a sufficient forward paper-fill record are still
+required. Live trading remains disabled and requires a separate human review.
