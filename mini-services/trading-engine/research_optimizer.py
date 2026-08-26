@@ -126,6 +126,21 @@ def run_research(
                         ]),
     }
     if output_path:
+        from research_intelligence import get_experiment_registry
+        registry = get_experiment_registry()
+        for item in results:
+            registry.register(
+                strategy=item["strategy"], symbol=item["symbol"],
+                config={"sl_pct": item["sl_pct"], "tp_pct": item["tp_pct"]},
+                provenance={"source": policy["data_source"], "days": days,
+                            "split": "60/20/20_CHRONOLOGICAL"},
+                metrics={"train": item["train"], "validation": item["validation"],
+                         "holdout": item["holdout"], "monte_carlo": item["monte_carlo"]},
+                stage="FULL_CHRONOLOGICAL",
+                verdict="PAPER_CANDIDATE" if item["passed"] else "REJECTED",
+                limitations=policy["limitations"],
+            )
+    if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         temp = output_path.with_suffix(".tmp")
         temp.write_text(json.dumps(policy, indent=2), encoding="utf-8")

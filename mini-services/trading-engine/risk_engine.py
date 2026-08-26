@@ -49,6 +49,10 @@ class Position:
     signal_price: float = 0
     entry_slippage: float = 0
     estimated_costs: float = 0
+    regime_at_entry: str = "UNKNOWN"
+    confidence_at_entry: float = 0
+    ranking_score: float = 0
+    paper_signal_id: str = ""
 
     def to_dict(self) -> Dict:
         return {
@@ -71,6 +75,10 @@ class Position:
             "signal_price": round(self.signal_price, 4),
             "entry_slippage": round(self.entry_slippage, 4),
             "estimated_costs": round(self.estimated_costs, 2),
+            "regime_at_entry": self.regime_at_entry,
+            "confidence_at_entry": round(self.confidence_at_entry, 2),
+            "ranking_score": round(self.ranking_score, 2),
+            "paper_signal_id": self.paper_signal_id,
         }
 
 

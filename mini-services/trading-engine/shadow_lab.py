@@ -123,6 +123,11 @@ class ShadowPaperLab:
                 "limitations": ["Model-derived option marks", "Not eligible for strategy promotion"],
                 "paper_only": True, "live_eligible": False}
 
+    def closed_trades(self) -> list[Dict]:
+        """Return a defensive copy for research analytics only."""
+        with self._lock:
+            return [dict(item) for item in self.state["trades"]]
+
 
 _lab: Optional[ShadowPaperLab] = None
 

@@ -158,6 +158,10 @@ class PaperExecutionEngine:
                 signal_price=signal_price,
                 entry_slippage=entry_slippage,
                 estimated_costs=commission * 2,
+                regime_at_entry=str(signal.get("regime_at_entry", "UNKNOWN")),
+                confidence_at_entry=float(signal.get("confidence", 0) or 0),
+                ranking_score=float(signal.get("ranking_score", 0) or 0),
+                paper_signal_id=str(signal.get("paper_signal_id", "")),
             )
             
             # Pre-trade risk check
@@ -265,9 +269,21 @@ class PaperExecutionEngine:
                         "signal_price": pos.signal_price,
                         "entry_slippage": pos.entry_slippage,
                         "estimated_costs": pos.estimated_costs,
+                        "regime_at_entry": pos.regime_at_entry,
+                        "confidence_at_entry": pos.confidence_at_entry,
+                        "ranking_score": pos.ranking_score,
                     })
                 except Exception as e:
                     logger.error(f"Failed to record trade in journal: {e}")
+                if pos.paper_signal_id:
+                    try:
+                        from paper_signal_journal import get_paper_signal_journal
+                        get_paper_signal_journal().record_outcome(pos.paper_signal_id, "POSITION_CLOSED", {
+                            "position_id": position_id, "pnl": result.get("pnl", 0),
+                            "exit_price": exit_price, "exit_reason": reason,
+                        })
+                    except Exception as e:
+                        logger.error(f"Failed to link paper signal outcome: {e}")
             
             return result
 

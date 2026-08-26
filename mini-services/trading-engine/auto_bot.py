@@ -18,7 +18,6 @@ This is the autonomous trading loop that connects everything:
 """
 import time
 import threading
-import random
 from typing import Dict, List, Optional, Set
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -32,6 +31,7 @@ from risk_engine import get_portfolio_engine
 from observability import logger, metrics
 from research_optimizer import load_policy
 from shadow_lab import get_shadow_lab
+from research_intelligence import StrategyIntelligence
 import brokers.telegram_bot as telegram_bot
 
 
@@ -320,37 +320,38 @@ class AutoTradingBot:
             }
             return
         
-        strategy_key = random.choice(candidates)
-
-        # Evidence governance can quarantine a strategy after enough poor paper
-        # results. Sparse history remains eligible for paper learning.
+        # Generate every regime-compatible candidate, then rank deterministically
+        # by confidence, governance, and existing symbol exposure.
         try:
             from autonomy import get_autonomy_supervisor
             supervisor = get_autonomy_supervisor()
-            allowed, governance_reason = supervisor.strategy_allowed(strategy_key)
-            if not allowed:
-                self._rejection_count += 1
-                self._last_scan = {
-                    "symbol": symbol, "strategy": strategy_key,
-                    "action": "REJECTED_GOVERNANCE", "reason": governance_reason,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                supervisor.record_decision("SIGNAL_REJECTED", strategy_key, governance_reason,
-                                           {"symbol": symbol, "gate": "strategy_governance"})
-                return
+            governance = supervisor.strategy_governance()["strategies"]
         except Exception as e:
             logger.error(f"Auto bot: governance check failed closed: {e}")
             return
-        
-        # Generate signal
-        try:
-            signal = generate_signal(strategy_key, symbol)
-        except Exception as e:
-            logger.error(f"Auto bot: signal generation failed for {strategy_key}/{symbol}: {e}")
+
+        generated = []
+        for candidate in candidates:
+            try:
+                candidate_signal = generate_signal(candidate, symbol)
+                if candidate_signal:
+                    generated.append(candidate_signal)
+            except Exception as e:
+                logger.error(f"Auto bot: signal generation failed for {candidate}/{symbol}: {e}")
+        ranked = StrategyIntelligence.rank_signals(
+            generated, routing.recommended_strategies, governance,
+            [position.to_dict() for position in risk_engine.positions],
+        )
+        if not ranked:
+            self._rejection_count += 1
+            self._last_scan = {"symbol": symbol, "action": "REJECTED_GOVERNANCE",
+                               "reason": "No structurally valid, governance-eligible ranked signal",
+                               "timestamp": datetime.now(timezone.utc).isoformat()}
             return
-        
-        if signal is None:
-            return
+        signal = ranked[0]
+        strategy_key = signal["strategy_key"]
+        signal["regime_at_entry"] = regime_state.composite_regime
+        signal["regime_confidence"] = regime_state.confidence
         signal["execution_scope"] = execution_scope
         signal["research_candidate"] = execution_scope == "PAPER_RND"
         
@@ -387,6 +388,7 @@ class AutoTradingBot:
         paper_signal_id = get_paper_signal_journal().record_detected(
             signal, regime_state.composite_regime, execution_scope, notification,
         )
+        signal["paper_signal_id"] = paper_signal_id
         
         # Execute via paper trading engine
         execution_engine = get_execution_engine()

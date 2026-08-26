@@ -12,7 +12,7 @@ import os
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, time as clock_time, timezone
+from datetime import datetime, time as clock_time, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
@@ -59,6 +59,8 @@ class AutonomyConfig:
     daily_workflow_enabled: bool = True
     auto_rnd_enabled: bool = True
     auto_rnd_refresh_data: bool = True
+    daily_backup_enabled: bool = True
+    backup_retention_days: int = 14
 
 
 class AutonomySupervisor:
@@ -80,6 +82,8 @@ class AutonomySupervisor:
         self._last_workflow_phase = "STOPPED"
         self._last_report_date: Optional[str] = None
         self._last_rnd_date: Optional[str] = None
+        self._last_backup_date: Optional[str] = None
+        self._last_backup: Dict = {"status": "NOT_RUN", "contains_secrets": False}
         self._rnd_running = False
         self._rnd_thread: Optional[threading.Thread] = None
         self._last_rnd: Dict = {"status": "NOT_RUN", "paper_only": True, "live_eligible": False}
@@ -94,6 +98,9 @@ class AutonomySupervisor:
             self.config = AutonomyConfig(**{k: v for k, v in raw.get("config", {}).items() if k in allowed})
             self._last_report_date = raw.get("last_report_date")
             self._last_rnd_date = raw.get("last_rnd_date")
+            self._last_backup_date = raw.get("last_backup_date")
+            if isinstance(raw.get("last_backup"), dict):
+                self._last_backup = raw["last_backup"]
             if isinstance(raw.get("last_rnd"), dict):
                 self._last_rnd = raw["last_rnd"]
             self._recovery_count = int(raw.get("recovery_count", 0))
@@ -107,6 +114,8 @@ class AutonomySupervisor:
             "last_report_date": self._last_report_date,
             "last_rnd_date": self._last_rnd_date,
             "last_rnd": self._last_rnd,
+            "last_backup_date": self._last_backup_date,
+            "last_backup": self._last_backup,
             "recovery_count": self._recovery_count,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -125,6 +134,7 @@ class AutonomySupervisor:
             self.config.heartbeat_seconds = max(5, min(60, int(self.config.heartbeat_seconds)))
             self.config.risk_per_trade_pct = max(0.1, min(1.0, float(self.config.risk_per_trade_pct)))
             self.config.max_hold_minutes = max(5, min(1440, int(self.config.max_hold_minutes)))
+            self.config.backup_retention_days = max(1, min(90, int(self.config.backup_retention_days)))
             self._save()
         return self.status()
 
@@ -221,7 +231,16 @@ class AutonomySupervisor:
                 state, reason = "QUARANTINED", "Performance thresholds failed"
             decisions[key] = {"state": state, "reason": reason, "trades": trades,
                               "win_rate": win_rate, "profit_factor": profit_factor}
-        return {"strategies": decisions, "timestamp": datetime.now(timezone.utc).isoformat()}
+        from research_intelligence import StrategyIntelligence
+        from shadow_lab import get_shadow_lab
+        intelligence = StrategyIntelligence.analyze(get_journal().get_all_trades(),
+                                                     get_shadow_lab().closed_trades())
+        for key, item in intelligence["drift"].items():
+            if key in decisions and item["status"] == "QUARANTINE_REVIEW":
+                decisions[key]["state"] = "QUARANTINED"
+                decisions[key]["reason"] = "Actual paper performance drift requires review"
+        return {"strategies": decisions, "drift": intelligence["drift"],
+                "timestamp": datetime.now(timezone.utc).isoformat()}
 
     def strategy_allowed(self, strategy: str) -> Tuple[bool, str]:
         item = self.strategy_governance()["strategies"].get(strategy)
@@ -338,15 +357,22 @@ class AutonomySupervisor:
             phase = "PRE_MARKET"
         elif current <= clock_time(15, 30):
             phase = "MARKET_MONITORING"
+        elif current < clock_time(16, 0):
+            phase = "POST_MARKET_RECONCILIATION"
         else:
-            phase = "POST_MARKET_REVIEW"
+            phase = "POST_MARKET_RESEARCH"
         self._last_workflow_phase = phase
         today = now.date().isoformat()
-        if phase == "POST_MARKET_REVIEW" and self._last_report_date != today:
+        if phase in {"POST_MARKET_RECONCILIATION", "POST_MARKET_RESEARCH"} and self._last_report_date != today:
             self.generate_daily_report()
             self._last_report_date = today
             self._save()
-        if phase in {"POST_MARKET_REVIEW", "WEEKEND_RESEARCH"}:
+        if self.config.daily_backup_enabled and phase in {"POST_MARKET_RESEARCH", "WEEKEND_RESEARCH"} and self._last_backup_date != today:
+            from research_intelligence import backup_research_state
+            self._last_backup = backup_research_state(self.state_dir, self.config.backup_retention_days)
+            self._last_backup_date = today
+            self._save()
+        if phase in {"POST_MARKET_RESEARCH", "WEEKEND_RESEARCH"}:
             self.trigger_rnd(force=False)
         return {"phase": phase, "market_timezone": "Asia/Kolkata", "timestamp": now.isoformat()}
 
@@ -392,8 +418,49 @@ class AutonomySupervisor:
         output = self.state_dir / "intraday-research.json"
         result = research_intraday_strategies(bars, "NIFTYBEES", 1, .01, output)
         registration = registry.register(result, str(bars[-1]["timestamp"]))
+        from research_intelligence import get_experiment_registry
+        experiment = get_experiment_registry().register(
+            strategy="INTRADAY_ENSEMBLE", symbol="NIFTYBEES",
+            config=result.get("selected_config") or {},
+            provenance={"source": quality.get("source"), "rows": quality.get("rows"),
+                        "latest_bar": str(bars[-1]["timestamp"])},
+            metrics={"train": result.get("train"), "validation": result.get("validation"),
+                     "holdout": result.get("holdout"), "status": result.get("status")},
+            stage="HOLDOUT", verdict=result.get("status", "REJECTED"),
+            limitations=["Paper research only; requires forward validation"],
+        )
+        futures_research = {"status": "BLOCKED_AUTHENTICATION", "reason": "Kite Connect is not configured",
+                            "paper_only": True, "live_eligible": False}
+        try:
+            from brokers import zerodha
+            if zerodha.is_configured():
+                from futures_research import run_futures_orb_batch
+                client = zerodha.get_client()
+                end = datetime.now(IST).date()
+                futures_research = run_futures_orb_batch(
+                    client, client.instruments("NFO"), end - timedelta(days=120), end,
+                    output_path=self.state_dir / "futures-orb-latest.json",
+                )
+                for row in futures_research.get("results", []):
+                    contract, report = row.get("contract", {}), row.get("research", {})
+                    get_experiment_registry().register(
+                        strategy="OPENING_RANGE_BREAKOUT",
+                        symbol=str(contract.get("tradingsymbol", "")),
+                        config=report.get("selected_config") or report.get("best_config") or {},
+                        provenance={"source": "KITE_FUTURES", "instrument_token": contract.get("instrument_token"),
+                                    "expiry": contract.get("expiry"), "bars": row.get("bars")},
+                        metrics={"train": report.get("train"), "validation": report.get("validation"),
+                                 "holdout": report.get("holdout"), "status": report.get("status")},
+                        stage="FUTURES_HOLDOUT", verdict=report.get("status", "REJECTED"),
+                        limitations=futures_research.get("limitations", []),
+                    )
+        except Exception as exc:
+            futures_research = {"status": "FAILED", "reason": str(exc),
+                                "paper_only": True, "live_eligible": False}
+            logger.warning(f"Authenticated futures R&D failed safely: {exc}")
         return {**result, "quality": quality, "data_refresh": refresh,
-                "forward_validation": {"evaluation": forward_evaluation, "registration": registration}}
+                "forward_validation": {"evaluation": forward_evaluation, "registration": registration},
+                "experiment_registry": experiment, "futures_research": futures_research}
 
     def _run_rnd_worker(self) -> None:
         today = datetime.now(IST).date().isoformat()
@@ -504,6 +571,7 @@ class AutonomySupervisor:
                                     "approved_by_symbol": research_policy.get("approved_by_symbol", {}),
                                     "live_eligible": False},
                 "automation_readiness": readiness,
+                "backup": {**self._last_backup, "last_run_date": self._last_backup_date},
                 "alerts": self._alerts[-20:], "recent_decisions": self.decisions(20),
                 "timestamp": datetime.now(timezone.utc).isoformat()}
 

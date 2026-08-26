@@ -89,6 +89,7 @@ interface AutonomyStatus {
     blockers: string[];
     checks: Array<{ key: string; label: string; ok: boolean }>;
   };
+  backup?: { status: string; last_run_date: string | null; files?: number; contains_secrets?: boolean };
 }
 
 interface ReleaseStatus {
@@ -111,6 +112,24 @@ interface ShadowLabStatus {
   live_eligible: boolean;
 }
 
+interface ResearchIntelligence {
+  actual_trades: number;
+  shadow_trades: number;
+  regime_performance: Record<string, { actual: { trades: number; expectancy: number }; shadow_model: { trades: number }; promotion_evidence: number }>;
+  drift: Record<string, { status: string; recent: { trades: number; expectancy: number }; baseline: { trades: number; expectancy: number } }>;
+  meta_label: { status: string; actual_labels: number; minimum_labels: number; shadow_labels_accepted: boolean };
+  paper_only: boolean;
+  live_eligible: boolean;
+}
+
+interface ExperimentStatus {
+  experiments: number;
+  records: number;
+  latest: Array<{ experiment_id: string; strategy: string; symbol: string; stage: string; verdict: string; recorded_at: string }>;
+  paper_only: boolean;
+  live_eligible: boolean;
+}
+
 export function JarvisView() {
   const [data, setData] = useState<JarvisObs | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,6 +138,8 @@ export function JarvisView() {
   const [autonomy, setAutonomy] = useState<AutonomyStatus | null>(null);
   const [release, setRelease] = useState<ReleaseStatus | null>(null);
   const [shadowLab, setShadowLab] = useState<ShadowLabStatus | null>(null);
+  const [intelligence, setIntelligence] = useState<ResearchIntelligence | null>(null);
+  const [experiments, setExperiments] = useState<ExperimentStatus | null>(null);
   const [autonomyBusy, setAutonomyBusy] = useState(false);
   const [rndBusy, setRndBusy] = useState(false);
   const [rndResult, setRndResult] = useState<{ status: string; quality?: { score: number; rows: number }; backtest?: { metrics?: { trades: number; return_pct: number; max_drawdown_pct: number } } } | null>(null);
@@ -126,11 +147,13 @@ export function JarvisView() {
 
   const loadData = async () => {
     try {
-      const [res, autonomyRes, releaseRes, shadowRes] = await Promise.all([
+      const [res, autonomyRes, releaseRes, shadowRes, intelligenceRes, experimentsRes] = await Promise.all([
         fetch("/api/jarvis/observability?XTransformPort=3030"),
         fetch("/api/jarvis/autonomy/status?XTransformPort=3030"),
         fetch("/api/jarvis/release-status?XTransformPort=3030"),
         fetch("/api/jarvis/shadow-lab?XTransformPort=3030"),
+        fetch("/api/jarvis/research/intelligence?XTransformPort=3030"),
+        fetch("/api/jarvis/research/experiments?XTransformPort=3030"),
       ]);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
@@ -138,6 +161,8 @@ export function JarvisView() {
       if (autonomyRes.ok) setAutonomy(await autonomyRes.json());
       if (releaseRes.ok) setRelease(await releaseRes.json());
       if (shadowRes.ok) setShadowLab(await shadowRes.json());
+      if (intelligenceRes.ok) setIntelligence(await intelligenceRes.json());
+      if (experimentsRes.ok) setExperiments(await experimentsRes.json());
       setLoading(false);
     } catch (e: any) {
       setLoading(false);
@@ -443,6 +468,16 @@ export function JarvisView() {
                 Shadow lab: {shadowLab.closed_trades} closed · {shadowLab.open_positions} open · model marks only · never live eligible
               </p>
             )}
+            {intelligence && (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Intelligence: {intelligence.actual_trades} actual evidence · {intelligence.shadow_trades} model observations · {Object.values(intelligence.drift).filter((item) => item.status === "QUARANTINE_REVIEW").length} drift reviews
+              </p>
+            )}
+            {intelligence && (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Meta-label filter: {intelligence.meta_label.status.replace(/_/g, " ")} · {intelligence.meta_label.actual_labels}/{intelligence.meta_label.minimum_labels} actual labels
+              </p>
+            )}
           </Card>
           <Card className="p-4">
             <h3 className="text-sm font-semibold mb-3">Recent Autonomous Decisions</h3>
@@ -453,6 +488,10 @@ export function JarvisView() {
                   <p className="text-[10px] text-muted-foreground">{d.subject}: {d.reason}</p>
                 </div>
               ))}
+            </div>
+            <div className="mt-3 border-t border-border/50 pt-2 text-[10px] text-muted-foreground">
+              Experiments: {experiments?.experiments ?? 0} immutable designs · {experiments?.records ?? 0} stage records
+              {autonomy.backup?.last_run_date ? ` · Backup ${autonomy.backup.last_run_date}` : " · Backup pending"}
             </div>
           </Card>
         </div>

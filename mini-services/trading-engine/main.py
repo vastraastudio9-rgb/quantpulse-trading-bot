@@ -69,6 +69,7 @@ from paper_signal_journal import get_paper_signal_journal
 from release_manager import release_status
 from jarvis_assistant import briefing
 from shadow_lab import get_shadow_lab
+from research_intelligence import StrategyIntelligence, get_experiment_registry, backup_research_state
 
 
 @asynccontextmanager
@@ -325,6 +326,23 @@ def paper_signals(limit: int = Query(50, ge=1, le=500)):
 def shadow_lab_status():
     """Return isolated all-strategy paper observations; never promotion evidence."""
     return get_shadow_lab().status()
+
+
+@app.get("/api/jarvis/research/intelligence")
+def research_intelligence():
+    """Regime performance and actual-paper drift, with shadow evidence isolated."""
+    return StrategyIntelligence.analyze(get_journal().get_all_trades(), get_shadow_lab().closed_trades())
+
+
+@app.get("/api/jarvis/research/experiments")
+def research_experiments():
+    return get_experiment_registry().status()
+
+
+@app.post("/api/jarvis/research/backup")
+def research_backup():
+    """Create a non-secret local research-state backup."""
+    return backup_research_state()
 
 @app.get("/api/positions")
 def get_positions():
