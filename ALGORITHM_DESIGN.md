@@ -67,6 +67,19 @@ For genuine intraday candles, import a broker or archive CSV:
 python scripts/import-market-data.py candles.csv --source NSE_ARCHIVE --symbol NIFTY --exchange NSE --timeframe 5m --export-parquet
 ```
 
+With `KITE_*` or `UPSTOX_*` credentials configured only in the server
+environment, JARVIS can fetch broker candles without returning or saving those
+credentials:
+
+```text
+POST /api/jarvis/data/download-broker-candles
+{"broker":"ZERODHA","symbol":"NIFTY","broker_instrument":"NIFTY 50","from_date":"2025-01-01","to_date":"2025-03-31","timeframe":"5m"}
+```
+
+For Upstox, `broker_instrument` is the official instrument key. Downloads are
+chunked, deduplicated, retained with provenance, and rejected by the ORB API
+until at least 100 valid five-minute candles pass the quality gate.
+
 Recognized columns include common variations of timestamp/date, open, high,
 low, close, volume and open interest. An import returns a non-zero status until
 the dataset satisfies the quality threshold.
@@ -77,7 +90,7 @@ store has no quality-approved dataset.
 
 ## What to revisit
 
-- Add authenticated Upstox/Kite five-minute download adapters.
+- Cache broker instrument masters with search and expired-contract support.
 - Cache the daily instrument master so expired derivatives remain identifiable.
 - Store historical option bid/ask snapshots and actual expiry calendars.
 - Add exchange-holiday calendars and corporate-action adjustment.

@@ -55,6 +55,7 @@ from research_optimizer import load_policy, run_research
 from market_data_store import get_market_data_store
 from orb_algorithm import ORBConfig, run_orb_backtest
 from nse_data_adapter import download_nse_index
+from broker_data_adapter import download_broker_candles
 
 app = FastAPI(
     title="Multi-Asset Trading Engine API",
@@ -1408,6 +1409,16 @@ class NSEIndexDownloadRequest(BaseModel):
     to_date: Optional[str] = None
 
 
+class BrokerCandleDownloadRequest(BaseModel):
+    broker: str
+    symbol: str
+    broker_instrument: str
+    from_date: str
+    to_date: Optional[str] = None
+    timeframe: str = "5m"
+    exchange: str = "NSE"
+
+
 @app.get("/api/jarvis/autonomy/status")
 def autonomy_status():
     return get_autonomy_supervisor().status()
@@ -1532,6 +1543,19 @@ def market_data_download_nse_index(req: NSEIndexDownloadRequest):
         start = date_type.fromisoformat(req.from_date)
         end = date_type.fromisoformat(req.to_date) if req.to_date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
         return download_nse_index(req.symbol, start, end)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/jarvis/data/download-broker-candles")
+def market_data_download_broker_candles(req: BrokerCandleDownloadRequest):
+    """Import authenticated candles; credentials are read only from server env."""
+    from datetime import date as date_type
+    try:
+        start = date_type.fromisoformat(req.from_date)
+        end = date_type.fromisoformat(req.to_date) if req.to_date else datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        return download_broker_candles(req.broker, req.symbol, req.broker_instrument,
+                                       start, end, req.timeframe, req.exchange)
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

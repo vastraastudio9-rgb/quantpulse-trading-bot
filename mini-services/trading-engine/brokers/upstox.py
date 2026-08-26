@@ -73,11 +73,24 @@ def fetch_historical(instrument_key: str, interval: str = "1d",
         return []
     try:
         import requests
-        url = f"{UPSTOX_BASE_URL}/historical-candle/{instrument_key}/{interval}/{from_date}/{to_date}"
+        from urllib.parse import quote
+        intervals = {
+            "minute": ("minutes", "1"), "5minute": ("minutes", "5"),
+            "15minute": ("minutes", "15"), "60minute": ("hours", "1"),
+            "day": ("days", "1"), "1d": ("days", "1"),
+        }
+        if interval not in intervals:
+            logger.error(f"Unsupported Upstox historical interval: {interval}")
+            return []
+        unit, amount = intervals[interval]
+        encoded_key = quote(instrument_key, safe="")
+        # V3 path order is explicitly to_date followed by from_date.
+        url = f"https://api.upstox.com/v3/historical-candle/{encoded_key}/{unit}/{amount}/{to_date}/{from_date}"
         response = requests.get(url, headers=_get_headers(), timeout=10)
         if response.status_code == 200:
             candles = response.json().get("data", {}).get("candles", [])
-            return [{"timestamp": c[0], "open": c[1], "high": c[2], "low": c[3], "close": c[4], "volume": c[5]} for c in candles]
+            return [{"timestamp": c[0], "open": c[1], "high": c[2], "low": c[3], "close": c[4],
+                     "volume": c[5], "open_interest": c[6] if len(c) > 6 else 0} for c in candles]
     except Exception as e:
         logger.error(f"Upstox historical failed: {e}")
     return []
