@@ -51,6 +51,12 @@ class PaperExecutionEngine:
             {accepted: bool, position_id: str, reason: str}
         """
         with self._lock:
+            if signal.get("execution_eligible") is False:
+                if not signal.get("paper_execution_eligible", False):
+                    return {"accepted": False, "reason": "Signal failed structural validation"}
+                from trading_mode import get_trading_mode
+                if get_trading_mode().status()["mode"] != "PAPER":
+                    return {"accepted": False, "reason": "Research candidates are restricted to PAPER mode"}
             symbol = signal.get("symbol", "")
             strategy = signal.get("strategy_key", "")
             legs = signal.get("legs", [])

@@ -360,6 +360,8 @@ def get_live_quote(symbol: str) -> Dict:
         "timestamp": now.isoformat(),
         "lot_size": cfg["lot_size"],
         "volatility": cfg["volatility"],
+        "data_source": "SIMULATED_LIVE",
+        "evidence_grade": "ENGINEERING_ONLY",
     }
 
 def get_option_chain(symbol: str, n_strikes: int = 11) -> Dict:
@@ -416,4 +418,6 @@ def get_option_chain(symbol: str, n_strikes: int = 11) -> Dict:
         "days_to_expiry": days_to_expiry,
         "chain": chain,
         "timestamp": now.isoformat(),
+        "data_source": "SIMULATED_OPTION_MODEL",
+        "evidence_grade": "ENGINEERING_ONLY",
     }

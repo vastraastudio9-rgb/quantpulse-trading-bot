@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from strategies import STRATEGIES, generate_signal, generate_signals_feed
+from strategies import STRATEGIES, generate_signal, generate_signals_feed, validate_signal
 
 
 class TestStrategyDefinitions:
@@ -32,6 +32,20 @@ class TestStrategyDefinitions:
 
 
 class TestSignalGeneration:
+    def test_invalid_zero_premium_signal_is_rejected(self):
+        signal = {"legs": [{"strike": 100, "premium": 0}], "entry_price": 0, "stop_loss": 1, "target": 1}
+        errors = validate_signal(signal)
+        assert "leg 1 premium must be positive" in errors
+        assert "entry_price must be positive" in errors
+
+    def test_simulated_signal_is_research_only(self):
+        signal = generate_signal("MOMENTUM_SCALPER", "NIFTY")
+        assert signal["evidence_grade"] == "ENGINEERING_ONLY"
+        assert signal["execution_eligible"] is False
+        assert signal["paper_execution_eligible"] is (not signal["validation_errors"])
+        assert signal["execution_scope"] == "PAPER_RND"
+        assert signal["status"] in {"CANDIDATE", "INVALID"}
+
     def test_generate_straddle_sell_signal(self):
         sig = generate_signal("STRADDLE_SELL", "NIFTY")
         assert sig is not None

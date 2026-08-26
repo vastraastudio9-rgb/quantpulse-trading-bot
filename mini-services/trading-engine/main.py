@@ -617,6 +617,8 @@ class TelegramSendRequest(BaseModel):
 def send_telegram(req: TelegramSendRequest):
     """Send a signal alert or generic message to Telegram."""
     if req.signal:
+        if req.signal.get("execution_eligible") is not True:
+            raise HTTPException(status_code=409, detail="Only validated REAL_MARKET signals can be sent as trade alerts")
         result = telegram_bot.send_signal_alert(req.signal)
     elif req.message:
         result = telegram_bot.send_alert(

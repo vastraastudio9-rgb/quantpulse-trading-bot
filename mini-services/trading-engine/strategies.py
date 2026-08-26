@@ -161,6 +161,23 @@ def _calc_confidence(strategy_key: str, market_data: Dict) -> float:
 def _generate_signal_id() -> str:
     return f"SIG-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{random.randint(1000,9999)}"
 
+
+def validate_signal(signal: Dict) -> List[str]:
+    """Return hard validation errors that make a signal unusable even for paper execution."""
+    errors = []
+    legs = signal.get("legs") or []
+    if not legs:
+        errors.append("signal has no legs")
+    for index, leg in enumerate(legs, start=1):
+        if float(leg.get("premium", 0) or 0) <= 0:
+            errors.append(f"leg {index} premium must be positive")
+        if float(leg.get("strike", 0) or 0) <= 0:
+            errors.append(f"leg {index} strike must be positive")
+    for field in ("entry_price", "stop_loss", "target"):
+        if float(signal.get(field, 0) or 0) <= 0:
+            errors.append(f"{field} must be positive")
+    return errors
+
 def generate_signal(strategy_key: str, symbol: str = "NIFTY") -> Optional[Dict]:
     """Generate a trading signal for given strategy + symbol."""
     if strategy_key not in STRATEGIES:
@@ -191,6 +208,8 @@ def generate_signal(strategy_key: str, symbol: str = "NIFTY") -> Optional[Dict]:
         "direction": strat["direction"],
         "legs": [],
         "rationale": "",
+        "data_source": quote.get("data_source", "UNKNOWN"),
+        "evidence_grade": quote.get("evidence_grade", "UNKNOWN"),
     }
     
     if strategy_key == "STRADDLE_SELL":
@@ -393,6 +412,12 @@ def generate_signal(strategy_key: str, symbol: str = "NIFTY") -> Optional[Dict]:
             f"Exit when IV Rank < 30 or 50% theta captured. Edge: IV systematically overestimates RV."
         )
     
+    errors = validate_signal(signal)
+    signal["validation_errors"] = errors
+    signal["paper_execution_eligible"] = not errors
+    signal["execution_eligible"] = not errors and signal["evidence_grade"] == "REAL_MARKET"
+    signal["execution_scope"] = "REAL_MARKET" if signal["execution_eligible"] else "PAPER_RND"
+    signal["status"] = "VERIFIED" if signal["execution_eligible"] else ("INVALID" if errors else "CANDIDATE")
     return signal
 
 def generate_signals_feed(limit: int = 12) -> List[Dict]:
@@ -403,15 +428,17 @@ def generate_signals_feed(limit: int = 12) -> List[Dict]:
     
     # Generate signals spread over last few hours
     now = datetime.now(timezone.utc)
-    for i in range(limit):
+    attempts = 0
+    while len(signals) < limit and attempts < limit * 4:
+        i = attempts
+        attempts += 1
         sym = symbols[i % len(symbols)]
         strat = strategy_keys[i % len(strategy_keys)]
         sig = generate_signal(strat, sym)
-        if sig:
+        if sig and not sig.get("validation_errors"):
             # Backdate timestamp
             minutes_ago = i * random.randint(8, 25)
             sig["timestamp"] = (now - timedelta_for(minutes_ago)).isoformat()
-            sig["status"] = "TRIGGERED" if i < limit // 2 else "ACTIVE"
             signals.append(sig)
     
     return signals

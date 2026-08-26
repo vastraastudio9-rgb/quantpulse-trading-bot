@@ -180,6 +180,9 @@ function SignalCard({ signal }: { signal: TradingSignal }) {
                 ACTIVE
               </Badge>
             )}
+            {signal.status === "CANDIDATE" && (
+              <Badge className="text-[9px] bg-cyan-500/15 text-cyan-400 border-0">R&amp;D CANDIDATE</Badge>
+            )}
           </div>
           <div className="text-xs text-muted-foreground mt-0.5">{signal.strategy_name}</div>
         </div>
@@ -200,6 +203,12 @@ function SignalCard({ signal }: { signal: TradingSignal }) {
           <span className="ml-1 font-medium">{signal.direction}</span>
         </div>
         <div className="ml-auto text-[10px] text-muted-foreground">{time}</div>
+      </div>
+      <div className="mb-3 flex items-center gap-2 text-[10px]">
+        <Badge variant="outline" className={cn("text-[9px]", signal.execution_eligible ? "border-emerald-500/40 text-emerald-400" : "border-amber-500/40 text-amber-400")}>
+          {signal.execution_eligible ? "REAL-MARKET VERIFIED" : "RESEARCH ONLY"}
+        </Badge>
+        <span className="text-muted-foreground">{signal.data_source || "UNKNOWN"} • {signal.evidence_grade || "UNKNOWN"}</span>
       </div>
 
       {/* Legs */}
@@ -283,10 +292,10 @@ function SendToTelegramButton({ signal }: { signal: TradingSignal }) {
       size="sm"
       className="w-full h-7 text-[10px] mt-2"
       onClick={handleSend}
-      disabled={sending}
+      disabled={sending || signal.execution_eligible !== true}
     >
       <Send className="w-3 h-3 mr-1" />
-      {sending ? "Sending..." : "Send to Telegram"}
+      {sending ? "Sending..." : signal.execution_eligible === true ? "Send to Telegram" : "Telegram blocked — research only"}
     </Button>
   );
 }

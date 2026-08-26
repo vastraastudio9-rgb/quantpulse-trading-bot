@@ -77,7 +77,9 @@ class TestPaperExecutionEngine:
         # (strategy_concentration max is 2)
         
         # Third position (same strategy) — should be blocked
-        sig3 = generate_signal("VRP_HARVEST", "NATURALGAS")
+        # Use a contract with valid positive model premiums so this assertion
+        # exercises concentration rather than the structural signal gate.
+        sig3 = generate_signal("VRP_HARVEST", "NIFTY")
         r3 = fresh_engine.process_signal(sig3)
         # If first two passed, third should fail on strategy_concentration
         if r1["accepted"] and r2["accepted"]:

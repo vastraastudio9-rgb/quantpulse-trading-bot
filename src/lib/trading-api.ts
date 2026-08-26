@@ -81,6 +81,12 @@ export interface TradingSignal {
   breakeven_lower?: number;
   rationale: string;
   status?: string;
+  data_source?: string;
+  evidence_grade?: string;
+  execution_eligible?: boolean;
+  paper_execution_eligible?: boolean;
+  execution_scope?: "REAL_MARKET" | "PAPER_RND";
+  validation_errors?: string[];
 }
 
 export interface Position {
