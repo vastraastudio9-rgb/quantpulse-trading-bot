@@ -46,7 +46,10 @@ export function SettingsView() {
       });
       const data = await res.json();
       if (data.ok) {
-        toast({ title: "Telegram test sent!", description: data.message });
+        toast({
+          title: data.saved_securely ? "Telegram connected securely" : "Telegram test sent",
+          description: data.saved_securely ? "Test delivered. Credentials encrypted locally for automatic restart recovery." : (data.save_error || data.message),
+        });
       } else {
         toast({ title: "Telegram test failed", description: data.message || data.error, variant: "destructive" });
       }

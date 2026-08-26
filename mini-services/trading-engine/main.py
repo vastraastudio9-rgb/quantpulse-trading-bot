@@ -32,6 +32,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
+# Restore encrypted local notification credentials before broker modules read
+# their environment. The vault lives under ignored runtime data, never Git.
+from secret_store import LocalSecretStore, restore_telegram_credentials
+restore_telegram_credentials()
+
 from market_data import INSTRUMENTS, get_live_quote, get_option_chain, generate_history
 from strategies import STRATEGIES, generate_signal, generate_signals_feed
 from backtest import run_backtest, calc_costs
@@ -637,10 +642,25 @@ def test_telegram(req: TelegramTestRequest):
         token=req.bot_token or None,
         chat_id=req.chat_id or None,
     )
+    saved_securely = False
+    save_error = None
+    if result.get("ok") and req.bot_token and req.chat_id:
+        try:
+            LocalSecretStore().save({"TELEGRAM_BOT_TOKEN": req.bot_token, "TELEGRAM_CHAT_ID": req.chat_id})
+            os.environ["TELEGRAM_BOT_TOKEN"] = req.bot_token
+            os.environ["TELEGRAM_CHAT_ID"] = req.chat_id
+            telegram_bot.TELEGRAM_BOT_TOKEN = req.bot_token
+            telegram_bot.TELEGRAM_CHAT_ID = req.chat_id
+            saved_securely = True
+        except Exception as exc:
+            save_error = str(exc)
+            logger.error("telegram_secure_save_failed", error=save_error)
     return {
         "ok": result.get("ok", False),
         "message": result.get("message", result.get("error", "")),
-        "chat_id": result.get("chat_id"),
+        "chat_id_configured": bool(req.chat_id or os.getenv("TELEGRAM_CHAT_ID")),
+        "saved_securely": saved_securely,
+        "save_error": save_error,
     }
 
 
