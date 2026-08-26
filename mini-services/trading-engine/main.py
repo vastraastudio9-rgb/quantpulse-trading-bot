@@ -66,6 +66,7 @@ from futures_research import near_month_stock_futures, run_futures_orb_batch
 from kite_rnd_pipeline import run_nifty_orb_pipeline
 from intraday_research import research_intraday_strategies
 from paper_signal_journal import get_paper_signal_journal
+from release_manager import release_status
 
 
 @asynccontextmanager
@@ -221,7 +222,16 @@ def _actual_positions() -> List[Dict]:
 # ============ ENDPOINTS ============
 @app.get("/health")
 def health():
-    return {"status": "OK", "service": "trading-engine", "version": "1.0.0", "timestamp": datetime.now(timezone.utc).isoformat()}
+    release = release_status()
+    return {"status": "OK", "service": "trading-engine", "version": "1.0.0",
+            "boot_commit": release["boot_commit"], "restart_required": release["restart_required"],
+            "timestamp": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/jarvis/release-status")
+def jarvis_release_status():
+    """Report the running commit and fail-closed restart readiness."""
+    return release_status()
 
 @app.get("/api/instruments")
 def list_instruments():

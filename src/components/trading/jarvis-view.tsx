@@ -91,12 +91,21 @@ interface AutonomyStatus {
   };
 }
 
+interface ReleaseStatus {
+  boot_commit: string | null;
+  workspace_commit: string | null;
+  booted_at: string;
+  restart_required: boolean;
+  preflight: { safe_to_restart: boolean; blockers: string[] };
+}
+
 export function JarvisView() {
   const [data, setData] = useState<JarvisObs | null>(null);
   const [loading, setLoading] = useState(true);
   const [killSwitchConfirm, setKillSwitchConfirm] = useState(false);
   const [activatingKill, setActivatingKill] = useState(false);
   const [autonomy, setAutonomy] = useState<AutonomyStatus | null>(null);
+  const [release, setRelease] = useState<ReleaseStatus | null>(null);
   const [autonomyBusy, setAutonomyBusy] = useState(false);
   const [rndBusy, setRndBusy] = useState(false);
   const [rndResult, setRndResult] = useState<{ status: string; quality?: { score: number; rows: number }; backtest?: { metrics?: { trades: number; return_pct: number; max_drawdown_pct: number } } } | null>(null);
@@ -104,14 +113,16 @@ export function JarvisView() {
 
   const loadData = async () => {
     try {
-      const [res, autonomyRes] = await Promise.all([
+      const [res, autonomyRes, releaseRes] = await Promise.all([
         fetch("/api/jarvis/observability?XTransformPort=3030"),
         fetch("/api/jarvis/autonomy/status?XTransformPort=3030"),
+        fetch("/api/jarvis/release-status?XTransformPort=3030"),
       ]);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
       setData(d);
       if (autonomyRes.ok) setAutonomy(await autonomyRes.json());
+      if (releaseRes.ok) setRelease(await releaseRes.json());
       setLoading(false);
     } catch (e: any) {
       setLoading(false);
@@ -240,6 +251,7 @@ export function JarvisView() {
               <Shield className={cn("w-5 h-5", risk.kill_switch_active ? "text-red-400" : "text-emerald-400")} />
               <span className="text-base font-semibold">JARVIS Risk Control</span>
               <Badge variant="outline" className="text-[10px]">{system.engine_version}</Badge>
+              {release?.restart_required && <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400">UPDATE WAITING</Badge>}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               {risk.kill_switch_active
@@ -265,6 +277,23 @@ export function JarvisView() {
           )}
         </div>
       </Card>
+
+      {release?.restart_required && (
+        <Card className="border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-medium text-amber-300">New JARVIS release is downloaded but not active</div>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                Running {release.boot_commit?.slice(0, 7)} · Available {release.workspace_commit?.slice(0, 7)}
+                {release.preflight.blockers.length ? ` · Restart blocked: ${release.preflight.blockers.join(", ")}` : " · Safe restart checks passed"}
+              </div>
+            </div>
+            <Badge variant="outline" className={cn("text-[9px]", release.preflight.safe_to_restart ? "border-emerald-500/40 text-emerald-400" : "border-red-500/40 text-red-400")}>
+              {release.preflight.safe_to_restart ? "SAFE TO RESTART" : "RESTART BLOCKED"}
+            </Badge>
+          </div>
+        </Card>
+      )}
 
       <Card className="p-4 border-violet-500/30 bg-violet-500/5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
