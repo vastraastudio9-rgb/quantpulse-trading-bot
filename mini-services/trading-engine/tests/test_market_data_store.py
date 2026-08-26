@@ -96,3 +96,15 @@ def test_orb_opening_range_minutes_controls_first_signal_time():
             __import__("zoneinfo").ZoneInfo("Asia/Kolkata")
         )
         assert (local_signal.hour, local_signal.minute) >= (9, 45)
+
+
+def test_orb_direction_filter_is_enforced():
+    long_only = run_orb_backtest(_intraday_bars(), "NIFTY", 1, 0.05,
+                                 config=ORBConfig(trade_direction="LONG", relative_volume_min=1.0,
+                                                  forced_exit="11:10"))
+    assert long_only["trades"]
+    assert {trade["side"] for trade in long_only["trades"]} == {"LONG"}
+
+    invalid = run_orb_backtest(_intraday_bars(), "NIFTY", 1, 0.05,
+                               config=ORBConfig(trade_direction="INVALID"))
+    assert invalid["status"] == "FAILED"

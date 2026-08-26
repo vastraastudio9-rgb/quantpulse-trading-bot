@@ -17,6 +17,7 @@ class ORBConfig:
     volume_lookback: int = 20
     relative_volume_min: float = 1.15
     allow_missing_volume: bool = False
+    trade_direction: str = "BOTH"
     atr_period: int = 14
     stop_atr_multiple: float = 1.0
     reward_risk: float = 1.75
@@ -57,6 +58,8 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
         return {"status": "FAILED", "error": "No candles", "trades": []}
     if not 5 <= config.opening_range_minutes <= 120:
         return {"status": "FAILED", "error": "opening_range_minutes must be 5-120", "trades": []}
+    if config.trade_direction not in {"BOTH", "LONG", "SHORT"}:
+        return {"status": "FAILED", "error": "trade_direction must be BOTH, LONG, or SHORT", "trades": []}
     ordered = sorted(bars, key=lambda bar: bar["timestamp"])
     volume_data_available = any(float(bar.get("volume", 0) or 0) > 0 for bar in ordered)
     session_open_minute = 9 * 60 + 15
@@ -146,6 +149,8 @@ def run_orb_backtest(bars: List[Dict], symbol: str, lot_size: int, tick_size: fl
             long_vwap_ok = bar["close"] > vwap if session["cum_volume"] else config.allow_missing_volume
             short_vwap_ok = bar["close"] < vwap if session["cum_volume"] else config.allow_missing_volume
             side = 1 if bar["close"] > session["or_high"] and long_vwap_ok else -1 if bar["close"] < session["or_low"] and short_vwap_ok else 0
+            if (config.trade_direction == "LONG" and side != 1) or (config.trade_direction == "SHORT" and side != -1):
+                side = 0
             if side and volume_confirmed and atr > 0:
                 range_risk = abs(bar["close"] - (session["or_low"] if side == 1 else session["or_high"]))
                 risk_distance = max(atr * config.stop_atr_multiple, range_risk)
