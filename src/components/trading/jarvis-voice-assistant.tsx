@@ -9,6 +9,25 @@ import { cn } from "@/lib/utils";
 
 type Message = { role: "user" | "jarvis"; text: string };
 
+async function fallbackBriefing(): Promise<string> {
+  const [observabilityResponse, botResponse] = await Promise.all([
+    fetch("/api/jarvis/observability?XTransformPort=3030"),
+    fetch("/api/jarvis/auto-bot/status?XTransformPort=3030"),
+  ]);
+  if (!observabilityResponse.ok || !botResponse.ok) throw new Error("Trading engine status is unavailable");
+  const observability = await observabilityResponse.json();
+  const bot = await botResponse.json();
+  const portfolio = observability.portfolio || {};
+  const risk = observability.risk || {};
+  const last = bot.last_scan || {};
+  return `JARVIS is in PAPER mode. Live execution is OFF. System status is ${observability.system?.status || "unknown"}. `
+    + `The scanner is ${bot.running ? "running" : "stopped"} with ${bot.symbols?.length || 0} symbols. `
+    + `There are ${portfolio.open_positions || 0} open paper positions. Today P and L is ₹${Number(portfolio.today_pnl || 0).toFixed(0)}, `
+    + `and unrealized P and L is ₹${Number(portfolio.unrealized_pnl || 0).toFixed(0)}. `
+    + `Kill switch is ${risk.kill_switch_active ? "active" : "inactive"}. `
+    + (last.symbol ? `Latest scan: ${last.symbol}, ${last.action || "no action"}. ${last.reason || ""}` : "No recent scan is available.");
+}
+
 export function JarvisVoiceAssistant() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
@@ -44,8 +63,14 @@ export function JarvisVoiceAssistant() {
       setMessages((items) => [...items, { role: "jarvis", text: data.answer }]);
       speak(data.answer);
     } catch (error: any) {
-      const text = `I cannot read the trading engine right now. ${error.message}`;
-      setMessages((items) => [...items, { role: "jarvis", text }]);
+      try {
+        const text = await fallbackBriefing();
+        setMessages((items) => [...items, { role: "jarvis", text }]);
+        speak(text);
+      } catch (fallbackError: any) {
+        const text = `I cannot read the trading engine right now. ${fallbackError.message || error.message}`;
+        setMessages((items) => [...items, { role: "jarvis", text }]);
+      }
     } finally {
       setBusy(false);
     }
